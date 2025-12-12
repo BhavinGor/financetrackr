@@ -80,8 +80,8 @@ export const addTransactionToDb = async (transaction: Transaction): Promise<stri
         throw new Error('Account ID is required');
     }
 
-    // Remove id and accountName - let database generate UUID, accountName is not in schema
-    const { id, accountName, ...transactionData } = transaction as any;
+    // Remove id, accountName, and metadata - metadata is not in schema
+    const { id, accountName, metadata, ...transactionData } = transaction as any;
 
     const { data, error } = await supabase
         .from('transactions')
@@ -96,9 +96,11 @@ export const addTransactionToDb = async (transaction: Transaction): Promise<stri
 };
 
 export const updateTransactionInDb = async (transaction: Transaction) => {
+    // metadata is not in schema
+    const { metadata, ...rest } = transaction as any;
     const { error } = await supabase
         .from('transactions')
-        .update(keysToSnakeCase(transaction))
+        .update(keysToSnakeCase(rest))
         .eq('id', transaction.id);
 
     if (error) throw error;
@@ -226,18 +228,22 @@ export const fetchVehicles = async () => {
     return keysToCamelCase(data) as Vehicle[];
 };
 
-export const addVehicleToDb = async (vehicle: Vehicle) => {
+export const addVehicleToDb = async (vehicle: Vehicle): Promise<string> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('No authenticated user');
 
     // Remove id - let database generate UUID
     const { id, ...vehicleData } = vehicle;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
         .from('vehicles')
-        .insert(keysToSnakeCase({ ...vehicleData, user_id: user.id }));
+        .insert(keysToSnakeCase({ ...vehicleData, user_id: user.id }))
+        .select()
+        .single();
 
     if (error) throw error;
+
+    return data.id;
 };
 
 export const updateVehicleInDb = async (vehicle: Vehicle) => {
@@ -273,18 +279,22 @@ export const fetchFuelLogs = async () => {
     return keysToCamelCase(data) as FuelLog[];
 };
 
-export const addFuelLogToDb = async (fuelLog: FuelLog) => {
+export const addFuelLogToDb = async (fuelLog: FuelLog): Promise<string> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('No authenticated user');
 
     // Remove id - let database generate UUID
     const { id, ...fuelLogData } = fuelLog;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
         .from('fuel_logs')
-        .insert(keysToSnakeCase({ ...fuelLogData, user_id: user.id }));
+        .insert(keysToSnakeCase({ ...fuelLogData, user_id: user.id }))
+        .select()
+        .single();
 
     if (error) throw error;
+
+    return data.id;
 };
 
 export const updateFuelLogInDb = async (fuelLog: FuelLog) => {
@@ -320,18 +330,22 @@ export const fetchInvestments = async () => {
     return keysToCamelCase(data) as Investment[];
 };
 
-export const addInvestmentToDb = async (investment: Investment) => {
+export const addInvestmentToDb = async (investment: Investment): Promise<string> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('No authenticated user');
 
-    // Remove id - let database generate UUID
-    const { id, ...investmentData } = investment;
+    // Remove id - let database generate UUID. Also remove 'amount' if passed by accident
+    const { id, amount, ...investmentData } = investment as any;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
         .from('investments')
-        .insert(keysToSnakeCase({ ...investmentData, user_id: user.id }));
+        .insert(keysToSnakeCase({ ...investmentData, user_id: user.id }))
+        .select()
+        .single();
 
     if (error) throw error;
+
+    return data.id;
 };
 
 export const updateInvestmentInDb = async (investment: Investment) => {

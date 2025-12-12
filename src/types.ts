@@ -50,6 +50,7 @@ export interface Transaction {
   description: string;
   accountId: string;
   source?: 'manual' | 'gmail' | 'csv'; // Track origin
+  notes?: string;
 }
 
 export interface Vehicle {
@@ -77,6 +78,8 @@ export interface Budget {
   user_id?: string;
   category: Category | string;
   limit: number;
+  spent: number;
+  period: 'monthly' | 'yearly';
 }
 
 export enum InvestmentType {
@@ -116,15 +119,28 @@ export interface ExtractedAccount {
   accountNumber?: string;
   bankName?: string;
   accountHolderName?: string;
+  primaryBalance?: string; // from JSON
+  balance?: string; // nested linked account balance
+  name?: string; // nested linked account name
+  status?: string;
+}
+
+export interface ExtractionQuality {
+  confidence: 'high' | 'medium' | 'low';
+  notes: string;
 }
 
 export interface PdfExtractionResult {
   transactions: ExtractedTransaction[];
-  accountInfo: ExtractedAccount;
-  statementPeriod?: {
-    from: string;
-    to: string;
+  accountInfo: ExtractedAccount & { linkedAccounts?: ExtractedAccount[] };
+  statementPeriod?: string | { from: string; to: string };
+  summary?: {
+    totalCredits: string;
+    totalDebits: string;
+    closingBalance: string;
+    transactionCount: string;
   };
+  extractionQuality?: ExtractionQuality;
 }
 
 export interface DashboardStats {

@@ -162,51 +162,51 @@ const _validateResponseStructure = (responseBody: any): string => {
     console.log("🔍 [_validateResponseStructure] Validating response structure...");
     console.log("   Response body type:", typeof responseBody);
     console.log("   Response keys:", Object.keys(responseBody || {}));
-    
+
     if (!responseBody) {
         console.error("   ❌ responseBody is null/undefined");
         throw new TypeError("Response body is null or undefined");
     }
-    
+
     console.log("   output exists:", !!responseBody.output);
     console.log("   output.message exists:", !!responseBody.output?.message);
     console.log("   output.message.content exists:", !!responseBody.output?.message?.content);
     console.log("   output.message.content type:", typeof responseBody.output?.message?.content);
-    
+
     if (!responseBody?.output?.message?.content) {
         console.error("   ❌ Missing output.message.content");
         throw new TypeError("Invalid AI response structure - missing content array");
     }
-    
+
     const content = responseBody.output.message.content;
     console.log("   content is array:", Array.isArray(content));
     console.log("   content length:", content.length);
-    
+
     if (!Array.isArray(content)) {
         console.error("   ❌ content is not an array");
         throw new TypeError("Invalid AI response structure - content is not an array");
     }
-    
+
     if (content.length === 0) {
         console.error("   ❌ content array is empty");
         throw new Error("AI response content array is empty");
     }
-    
+
     console.log("   Accessing content[0]...");
     const firstItem = content[0];
     console.log("   content[0] exists:", !!firstItem);
     console.log("   content[0] type:", typeof firstItem);
     console.log("   content[0] keys:", Object.keys(firstItem || {}));
-    
+
     const aiResponse = firstItem?.text;
     console.log("   aiResponse exists:", !!aiResponse);
     console.log("   aiResponse length:", aiResponse?.length);
-    
+
     if (!aiResponse || aiResponse.trim().length === 0) {
         console.error("   ❌ No response text found");
         throw new Error("No response text received from AI service");
     }
-    
+
     console.log("   ✅ Validation passed");
     return aiResponse;
 };
@@ -216,19 +216,19 @@ const _extractJsonFromResponse = (aiResponse: string): any => {
     console.log("   aiResponse length:", aiResponse.length);
     console.log("   First 100 chars:", aiResponse.substring(0, 100));
     console.log("   Last 100 chars:", aiResponse.substring(Math.max(0, aiResponse.length - 100)));
-    
+
     console.log("   Looking for JSON pattern...");
     const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-    
+
     console.log("   Match found:", !!jsonMatch);
     console.log("   Match length:", jsonMatch?.length);
     console.log("   Match[0] length:", jsonMatch?.[0]?.length);
-    
+
     if (!jsonMatch || jsonMatch.length === 0) {
         console.error("   ❌ No JSON match found");
         throw new Error("Failed to parse AI response - no valid JSON found");
     }
-    
+
     console.log("   Parsing JSON from match...");
     try {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -247,33 +247,33 @@ const _validateTransactionData = (extracted: any): void => {
     console.log("   extracted type:", typeof extracted);
     console.log("   extracted keys:", Object.keys(extracted || {}));
     console.log("   extracted.transactions exists:", !!extracted?.transactions);
-    
+
     if (!extracted) {
         console.error("   ❌ extracted object is null/undefined");
         throw new TypeError("Invalid response - extracted data is empty");
     }
-    
+
     if (!extracted.transactions) {
         console.error("   ❌ Missing 'transactions' field");
         console.error("   Full extracted object:", JSON.stringify(extracted).substring(0, 500));
         throw new TypeError("Invalid response structure - missing 'transactions' field");
     }
-    
+
     console.log("   transactions type:", typeof extracted.transactions);
     console.log("   Is array:", Array.isArray(extracted.transactions));
-    
+
     if (!Array.isArray(extracted.transactions)) {
         console.error("   ❌ transactions is not an array");
         throw new TypeError("Invalid response structure - 'transactions' is not an array");
     }
-    
+
     console.log("   transactions length:", extracted.transactions.length);
-    
+
     if (extracted.transactions.length === 0) {
         console.error("   ❌ transactions array is empty");
         throw new Error("No transactions found in the PDF. The document may not be a bank statement or contains no transaction data.");
     }
-    
+
     console.log("   ✅ Validation passed");
     console.log("   First transaction:", JSON.stringify(extracted.transactions[0]).substring(0, 200));
 };
@@ -282,16 +282,16 @@ export const extractTransactionsFromPdf = async (pdfText: string): Promise<any> 
     console.log("═══════════════════════════════════════════════════════════════");
     console.log("📊 [extractTransactionsFromPdf] STARTING PDF TRANSACTION EXTRACTION");
     console.log("═══════════════════════════════════════════════════════════════");
-    
+
     console.log("   Input validation...");
     console.log("   pdfText type:", typeof pdfText);
     console.log("   pdfText length:", pdfText?.length);
-    
+
     if (!pdfText || pdfText.trim().length === 0) {
         console.error("   ❌ No text provided");
         throw new Error('No text available for extraction. PDF may be empty or unreadable.');
     }
-    
+
     console.log("   ✅ Input valid");
 
     const prompt = `You are a financial data extraction assistant. Analyze this bank statement or bill text and extract transaction information.
@@ -325,7 +325,7 @@ Extract and return ONLY a JSON object with this exact structure (no markdown, no
 }
 
 Rules:
-1. Convert all dates to YYYY-MM-DD format
+1. Convert all dates STRICTLY to YYYY-MM-DD format (e.g. 2024-03-25). Convert DD/MM/YYYY or MM/DD/YYYY to YYYY-MM-DD.
 2. amount should be absolute value (no negatives)
 3. type: "debit" for expenses/withdrawals, "credit" for income/deposits
 4. Auto-categorize based on merchant/description (be smart about this)
@@ -360,30 +360,31 @@ Rules:
         console.log("   ✅ Got response from Bedrock");
         console.log("   Response type:", typeof response);
         console.log("   Response.body exists:", !!response.body);
-        
+
         console.log("   Decoding response body...");
         const decodedBody = new TextDecoder().decode(response.body);
+        console.log("   🔴 RAW BEDROCK RESPONSE:", decodedBody);
         console.log("   Decoded length:", decodedBody.length);
         console.log("   First 200 chars:", decodedBody.substring(0, 200));
-        
+
         console.log("   Parsing JSON response...");
         const responseBody = JSON.parse(decodedBody);
         console.log("   ✅ Response JSON parsed");
-        
+
         // Use helper functions for validation and extraction
         console.log("\n   STEP 1: Validating response structure...");
         const aiResponse = _validateResponseStructure(responseBody);
-        
+
         console.log("\n   STEP 2: Extracting JSON from AI response...");
         const extracted = _extractJsonFromResponse(aiResponse);
-        
+
         console.log("\n   STEP 3: Validating transaction data...");
         _validateTransactionData(extracted);
-        
+
         console.log("═══════════════════════════════════════════════════════════════");
         console.log(`✅ SUCCESS: Found ${extracted.transactions.length} transactions`);
         console.log("═══════════════════════════════════════════════════════════════\n");
-        
+
         return extracted;
     } catch (error: any) {
         console.error("═══════════════════════════════════════════════════════════════");
@@ -393,7 +394,7 @@ Rules:
         console.error("   Error message:", error.message);
         console.error("   Error stack:", error.stack);
         console.error("═══════════════════════════════════════════════════════════════\n");
-        
+
         // Provide user-friendly error messages based on error type
         if (error instanceof TypeError) {
             throw new Error("Could not properly parse the AI response. Please try again or use a different PDF.");
@@ -407,7 +408,7 @@ Rules:
         if (error.message.includes("No valid AWS credentials")) {
             throw new Error("Authentication failed. Please check your AWS credentials configuration.");
         }
-        
+
         throw new Error(error.message || "Failed to extract transactions from PDF. Please try another file.");
     }
 };

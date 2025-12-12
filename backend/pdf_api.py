@@ -119,6 +119,7 @@ def parse_pdf():
         print(f'✅ PDF PARSING COMPLETE - {transactions_count} transactions extracted')
         print('='*70 + '\n')
         
+        print(extracted_data)
         # Return in the format expected by frontend
         return jsonify({
             'success': True,
