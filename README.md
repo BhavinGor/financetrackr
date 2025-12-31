@@ -1,6 +1,6 @@
 # FinanceTrackr
 
-A comprehensive personal finance management application built with React, TypeScript, and Supabase.
+A comprehensive personal finance management application built with React, TypeScript, Python, and Supabase.
 
 ## Features
 
@@ -11,6 +11,40 @@ A comprehensive personal finance management application built with React, TypeSc
 - 🚗 **Vehicles** - Track vehicle expenses and fuel logs
 - 💼 **Investments** - Monitor investment portfolio
 - 🤖 **AI Insights** - Get financial advice powered by AWS Bedrock
+
+## Project Structure
+
+```
+financetrackr/
+├── frontend/                    # React + TypeScript frontend
+│   ├── src/
+│   │   ├── main.tsx            # Entry point
+│   │   ├── App.tsx             # Main app component
+│   │   ├── pages/              # Page components
+│   │   ├── components/         # Reusable components
+│   │   ├── services/           # API client layer
+│   │   ├── types/              # TypeScript types
+│   │   └── constants/          # App constants
+│   ├── index.html              # HTML entry point
+│   └── README.md               # Frontend documentation
+│
+├── backend/                     # Python Flask backend
+│   ├── main.py                 # Application entry point
+│   ├── config.py               # Configuration
+│   ├── api/                    # API routes
+│   ├── services/               # Business logic
+│   ├── middleware/             # Middleware
+│   ├── utils/                  # Utilities
+│   └── README.md               # Backend documentation
+│
+├── database/                    # Database schema
+│   └── schema.sql              # Supabase schema
+│
+├── .env.local.example          # Environment variables template
+├── vite.config.ts              # Vite configuration
+├── package.json                # Frontend dependencies
+└── README.md                   # This file
+```
 
 ## Quick Start
 
@@ -25,100 +59,91 @@ A comprehensive personal finance management application built with React, TypeSc
 
 1. **Clone and install dependencies:**
 ```bash
+# Install frontend dependencies
 npm install
-pip install -r requirements.txt
+
+# Install backend dependencies
+pip install -r backend/requirements.txt
 ```
 
 2. **Set up environment variables:**
 
-Create `.env.local`:
+Copy `.env.local.example` to `.env.local` and fill in your credentials:
 ```env
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_AWS_ACCESS_KEY_ID=your_aws_access_key
 VITE_AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 VITE_AWS_REGION=us-east-1
+FLASK_DEBUG=True
+FLASK_PORT=5000
+ALLOWED_ORIGINS=http://localhost:5173
 ```
 
 3. **Set up database:**
 
 Run the SQL schema in Supabase:
 ```bash
-# Copy schema from supabase/schema.sql to Supabase SQL Editor
+# Copy schema from database/schema.sql to Supabase SQL Editor and execute
 ```
 
 4. **Start the application:**
 ```bash
-# Terminal 1: Start frontend
-npm run dev
-
-# Terminal 2: Start PDF API (for PDF import)
+# Terminal 1: Start backend
 cd backend
-python3 pdf_api.py
+python main.py
+
+# Terminal 2: Start frontend
+npm run dev
 ```
 
 5. **Access the app:**
 - Frontend: http://localhost:5173
-- PDF API: http://localhost:8000
+- Backend API: http://localhost:5000
 
-## Project Structure
+## Architecture
 
-```
-financetrackr/
-├── components/          # React components
-│   ├── Dashboard.tsx   # Main dashboard
-│   ├── Transactions.tsx # Transaction management
-│   ├── Accounts.tsx    # Account management
-│   ├── Budget.tsx      # Budget tracking
-│   └── ...
-├── services/           # API services
-│   ├── supabase.ts    # Database operations
-│   ├── bedrockService.ts # AI insights
-│   └── categoryStorage.ts # Category management
-├── backend/            # Python backend
-│   └── pdf_api.py     # PDF extraction API
-├── supabase/          # Database schema
-│   └── schema.sql     # Database setup
-├── tests/             # Test files
-│   └── pdfImportTests.ts # PDF import tests
-└── types.ts           # TypeScript types
-```
+### Frontend Architecture
 
-## Key Features
+**Tech Stack**: React 19, TypeScript, Vite, TailwindCSS
 
-### PDF Import
-- Upload bank statements (PDF)
-- Automatic transaction extraction
-- Account detection
-- Category mapping
-- **Tests run automatically in dev mode**
+**Key Concepts**:
+- **Pages**: Top-level route components (Dashboard, Transactions, etc.)
+- **Components**: Reusable UI components (buttons, modals, forms)
+- **Services**: API client layer for Supabase and external APIs
+- **Types**: Centralized TypeScript type definitions
+
+**Data Flow**:
+1. User interacts with UI component
+2. Component calls service layer
+3. Service makes API call (Supabase or backend)
+4. Data flows back and updates UI
+
+See [frontend/README.md](frontend/README.md) for detailed documentation.
+
+### Backend Architecture
+
+**Tech Stack**: Python 3, Flask, AWS Bedrock, pdfplumber
+
+**Layers**:
+1. **API Layer** (`api/`): Thin controllers, request validation
+2. **Service Layer** (`services/`): Business logic (PDF extraction, AI formatting)
+3. **Utils Layer** (`utils/`): Logging, validation, helpers
+
+**PDF Processing Workflow**:
+1. User uploads PDF via frontend
+2. Backend extracts text using pdfplumber
+3. Text sent to Amazon Nova Pro for intelligent parsing
+4. AI returns structured JSON with transactions
+5. Frontend receives and displays data
+
+See [backend/README.md](backend/README.md) for detailed documentation.
 
 ### Database
-- **Supabase** for backend
-- Row Level Security (RLS) enabled
-- Real-time sync across devices
-- Automatic UUID generation
 
-### AI Insights
-- Powered by AWS Bedrock
-- Financial advice and analysis
-- Spending pattern detection
+**Supabase (PostgreSQL)** with Row Level Security (RLS)
 
-## Development
-
-### Running Tests
-
-PDF import tests run automatically after each import in development mode.
-
-Manual testing:
-```js
-// In browser console
-window.pdfImportTests.help()
-```
-
-### Database Schema
-
-Key tables:
+**Key Tables**:
 - `profiles` - User profiles
 - `accounts` - Bank accounts
 - `transactions` - Financial transactions
@@ -128,50 +153,105 @@ Key tables:
 - `fuel_logs` - Fuel tracking
 - `investments` - Investment portfolio
 
-### Date Formats
-- **Storage**: yyyy-MM-dd (database)
-- **Display**: dd-MM-yyyy (UI)
-- All dates are automatically converted
+**Features**:
+- Automatic UUID generation
+- Real-time sync across devices
+- Secure row-level access control
 
-## Configuration
+### Authentication
 
-### Supabase Setup
+**Supabase Auth** handles all authentication:
+- Email/password authentication
+- Session management
+- Password reset
+- JWT token validation
 
-1. Create a new Supabase project
-2. Run `supabase/schema.sql` in SQL Editor
-3. Enable Row Level Security on all tables
-4. Copy project URL and anon key to `.env.local`
+Frontend: `services/supabase/auth.ts`
+Backend: JWT verification (future middleware)
 
-### AWS Bedrock Setup
+## Development
 
-1. Create AWS account
-2. Enable Bedrock API access
-3. Request access to Amazon Nova Pro model
-4. Add credentials to `.env.local`
+### Frontend Development
+
+```bash
+npm run dev      # Start dev server
+npm run build    # Build for production
+npm run preview  # Preview production build
+```
+
+### Backend Development
+
+```bash
+cd backend
+python main.py   # Start Flask server
+```
+
+### Code Style
+
+**Frontend**:
+- camelCase for variables/functions
+- PascalCase for components
+- JSDoc comments for exported functions
+- TypeScript strict mode
+
+**Backend**:
+- snake_case for variables/functions
+- Google-style docstrings
+- Type hints where applicable
+- Structured logging
+
+## Key Features
+
+### PDF Import
+
+1. Upload bank statement PDF
+2. Automatic text extraction (supports password-protected PDFs)
+3. AI-powered transaction parsing using Amazon Nova Pro
+4. Account detection and mapping
+5. Review and import transactions
+
+### AI Insights
+
+- Powered by AWS Bedrock (Amazon Nova Pro)
+- Financial advice and analysis
+- Spending pattern detection
+- Budget recommendations
+
+### Date Handling
+
+- **Storage**: `yyyy-MM-dd` (database)
+- **Display**: `dd-MM-yyyy` (UI)
+- Automatic conversion in service layer
 
 ## Troubleshooting
 
-### PDF Import Issues
-- Ensure PDF API is running (`python3 backend/pdf_api.py`)
-- Check console for errors
-- Verify PDF is not password-protected
+### Frontend Issues
 
-### Database Errors
-- Check Supabase connection
-- Verify RLS policies are set correctly
-- Ensure user is authenticated
+**Build errors**: Ensure all dependencies are installed (`npm install`)
+**Import errors**: Check that Vite config points to correct `frontend/` directory
+**Auth errors**: Verify Supabase credentials in `.env.local`
 
-### Date Filter Not Working
-- Dates must be in yyyy-MM-dd format in database
-- Check browser console for errors
+### Backend Issues
 
-## Tech Stack
+**PDF API not starting**: Check Python dependencies (`pip install -r backend/requirements.txt`)
+**AWS errors**: Verify AWS credentials and Bedrock access
+**CORS errors**: Check `ALLOWED_ORIGINS` in `.env.local`
 
-- **Frontend**: React 18, TypeScript, Vite
-- **Backend**: Supabase (PostgreSQL)
-- **AI**: AWS Bedrock (Amazon Nova Pro)
-- **Charts**: Recharts
-- **Icons**: Lucide React
+### Database Issues
+
+**Connection errors**: Verify Supabase URL and anon key
+**RLS errors**: Ensure user is authenticated
+**Migration errors**: Check that schema.sql was executed correctly
+
+## Contributing
+
+This project follows clean architecture principles:
+- Thin controllers, logic in services
+- No database logic in routes
+- Comprehensive error handling
+- Extensive inline documentation
+
+See individual README files in `frontend/` and `backend/` for detailed contribution guidelines.
 
 ## License
 
