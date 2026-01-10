@@ -14,7 +14,8 @@ import {
     fetchAccounts, addAccountToDb, updateAccountInDb, deleteAccountFromDb,
     fetchBudgets, saveBudgetsToDb,
     fetchVehicles, addVehicleToDb, updateVehicleInDb, deleteVehicleFromDb,
-    addTransactionWithExtensions,
+    addTransactionWithExtensions, updateTransactionWithExtensions,
+    fetchAllFuelTransactions, fetchAllInvestmentTransactions,
     addInvestmentToDb, updateInvestmentInDb, deleteInvestmentFromDb
 } from './services/supabase/database';
 import { fetchGmailTransactions } from './services/external/gmail';
@@ -76,19 +77,20 @@ const App = () => {
                     return;
                 }
 
-                const [txs, accs, bgs, vh] = await Promise.all([
+                const [txs, accs, bgs, vh, fuelTxs, invTxs] = await Promise.all([
                     fetchTransactions(),
                     fetchAccounts(),
                     fetchBudgets(),
-                    fetchVehicles()
-                    // Note: fuel and investment data now comes via transaction extensions
+                    fetchVehicles(),
+                    fetchAllFuelTransactions(),
+                    fetchAllInvestmentTransactions()
                 ]);
 
                 setTransactions(txs);
                 setAccounts(accs);
                 setVehicles(vh);
-                setFuelLogs([]); // Deprecated - keeping state for compatibility
-                setInvestments([]); // Deprecated - keeping state for compatibility
+                setFuelLogs(fuelTxs as any); // Now populated from fuel_transactions table
+                setInvestments(invTxs as any); // Now populated from investment_transactions table
 
                 // Calculate spent for budgets
                 const budgetsWithSpent = bgs.map(b => ({
@@ -157,7 +159,16 @@ const App = () => {
 
     const handleUpdateTransaction = async (tx: Transaction) => {
         setTransactions(prev => prev.map(t => t.id === tx.id ? tx : t));
-        await updateTransactionInDb(tx);
+        // Use extension-aware update function
+        await updateTransactionWithExtensions(tx as any);
+
+        // Refresh extension data after update
+        const [fuelTxs, invTxs] = await Promise.all([
+            fetchAllFuelTransactions(),
+            fetchAllInvestmentTransactions()
+        ]);
+        setFuelLogs(fuelTxs as any);
+        setInvestments(invTxs as any);
     };
 
     const handleDeleteTransaction = async (id: string) => {

@@ -284,6 +284,181 @@ export const fetchFuelTransactionsForVehicle = async (vehicleId: string) => {
     }));
 };
 
+/**
+ * Fetch all fuel transactions for all vehicles
+ * Returns data needed for Vehicles tab
+ */
+export const fetchAllFuelTransactions = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('fuel_transactions')
+        .select(`
+            *,
+            transaction:transactions(*)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return (data || []).map(item => ({
+        id: item.id,
+        transactionId: item.transaction_id,
+        vehicleId: item.vehicle_id,
+        liters: item.liters,
+        mileage: item.mileage,
+        // From joined transaction
+        date: item.transaction.date,
+        cost: item.transaction.amount,
+        createdAt: item.created_at
+    }));
+};
+
+/**
+ * Fetch all investment transactions
+ * Returns data needed for Savings tab
+ */
+export const fetchAllInvestmentTransactions = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('investment_transactions')
+        .select(`
+            *,
+            transaction:transactions(*)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Map to Investment interface format expected by SavingsPage
+    return (data || []).map(item => ({
+        id: item.id,
+        name: item.asset_name,
+        type: item.investment_type,
+        investedAmount: item.transaction.amount,
+        currentValue: item.transaction.amount, // TODO: Track current value separately
+        quantity: item.quantity,
+        date: item.transaction.date
+    }));
+};
+
+/**
+ * Update a transaction with optional fuel or investment extensions
+ * - Updates the base transaction
+ * - Creates/updates/deletes fuel_transactions based on metadata
+ * - Creates/updates/deletes investment_transactions based on metadata
+ */
+export const updateTransactionWithExtensions = async (
+    transaction: Transaction & { metadata?: any }
+): Promise<void> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('No authenticated user');
+
+    // Extract metadata
+    const { metadata, ...txData } = transaction;
+
+    // Determine if this is fuel or investment based on category and metadata
+    const isFuel = transaction.category === 'Fuel' && metadata?.vehicleId;
+    const isInvestment = (transaction.category === 'Investment' || transaction.category === 'Savings') && metadata?.investmentId;
+
+    // Update base transaction with flags
+    const updateData = {
+        ...txData,
+        is_fuel: isFuel,
+        is_investment: isInvestment
+    };
+
+    const { id, ...dataToUpdate } = updateData as any;
+
+    const { error: txError } = await supabase
+        .from('transactions')
+        .update(keysToSnakeCase(dataToUpdate))
+        .eq('id', id);
+
+    if (txError) throw txError;
+
+    // Handle fuel extension
+    if (isFuel && metadata) {
+        // Check if fuel_transaction exists
+        const { data: existing } = await supabase
+            .from('fuel_transactions')
+            .select('id')
+            .eq('transaction_id', id)
+            .single();
+
+        const fuelData = {
+            transaction_id: id,
+            user_id: user.id,
+            vehicle_id: metadata.vehicleId,
+            liters: metadata.liters || 0,
+            mileage: metadata.odometer || metadata.mileage || 0
+        };
+
+        if (existing) {
+            // Update existing
+            await supabase
+                .from('fuel_transactions')
+                .update(fuelData)
+                .eq('transaction_id', id);
+        } else {
+            // Insert new
+            await supabase
+                .from('fuel_transactions')
+                .insert(fuelData);
+        }
+    } else {
+        // Remove fuel extension if exists but no longer fuel
+        await supabase
+            .from('fuel_transactions')
+            .delete()
+            .eq('transaction_id', id);
+    }
+
+    // Handle investment extension
+    if (isInvestment && metadata) {
+        // Check if investment_transaction exists
+        const { data: existing } = await supabase
+            .from('investment_transactions')
+            .select('id')
+            .eq('transaction_id', id)
+            .single();
+
+        const invData = {
+            transaction_id: id,
+            user_id: user.id,
+            investment_type: metadata.investmentType || 'Other',
+            asset_name: metadata.assetName || 'Investment',
+            quantity: metadata.quantity || metadata.units || 0,
+            price_per_unit: metadata.pricePerUnit || metadata.price || 0
+        };
+
+        if (existing) {
+            // Update existing
+            await supabase
+                .from('investment_transactions')
+                .update(invData)
+                .eq('transaction_id', id);
+        } else {
+            // Insert new
+            await supabase
+                .from('investment_transactions')
+                .insert(invData);
+        }
+    } else {
+        // Remove investment extension if exists but no longer investment
+        await supabase
+            .from('investment_transactions')
+            .delete()
+            .eq('transaction_id', id);
+    }
+};
+
+
 // ============================================================================
 // ACCOUNT OPERATIONS
 // ============================================================================
