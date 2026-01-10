@@ -13,7 +13,6 @@ import {
   Vehicle
 } from '../types';
 import { Plus, Search, Upload, Trash2, ArrowRight, X, Edit, FileUp, AlertCircle } from 'lucide-react';
-import { isPdfFile, validatePdfSize } from '../services/pdfService';
 
 // Date format helpers
 const formatDateDisplay = (dateStr: string): string => {
@@ -293,17 +292,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, accoun
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Validate file
-    if (!isPdfFile(file)) {
-      setPdfError('Please select a PDF file');
-      return;
-    }
-
-    if (!validatePdfSize(file)) {
-      setPdfError('PDF file is too large. Maximum size is 10MB');
-      return;
-    }
 
     await processPdfFile(file);
     // Reset input
