@@ -83,7 +83,8 @@ const keysToCamelCase = (obj: any): any => {
 
 /**
  * Fetch all transactions for the current user
- * @returns Array of transactions, sorted by date (newest first)
+ * Includes metadata from fuel_transactions and investment_transactions
+ * @returns Array of transactions with populated metadata, sorted by date (newest first)
  */
 
 export const fetchTransactions = async () => {
@@ -92,12 +93,76 @@ export const fetchTransactions = async () => {
 
     const { data, error } = await supabase
         .from('transactions')
-        .select('*')
+        .select(`
+            *,
+            fuel_transactions(*),
+            investment_transactions(*)
+        `)
         .eq('user_id', user.id)
         .order('date', { ascending: false });
 
     if (error) throw error;
-    return keysToCamelCase(data) as Transaction[];
+
+    console.log('Fetched transactions from DB, sample:', data?.[0]);
+
+    // Transform data to include metadata from extensions
+    const transactions = (data || []).map(tx => {
+        let metadata: any = null;
+
+        // Check for fuel extension - it's an object, not an array
+        if (tx.fuel_transactions && typeof tx.fuel_transactions === 'object') {
+            const fuelData = tx.fuel_transactions;
+            metadata = {
+                vehicleId: fuelData.vehicle_id,
+                liters: fuelData.liters,
+                odometer: fuelData.mileage, // Map mileage to odometer for UI
+                mileage: fuelData.mileage
+            };
+            console.log('Created fuel metadata:', metadata);
+        }
+
+        // Check for investment extension - it's an object, not an array
+        if (tx.investment_transactions && typeof tx.investment_transactions === 'object') {
+            const invData = tx.investment_transactions;
+            console.log('Processing investment transaction:', {
+                tx_id: tx.id,
+                tx_category: tx.category,
+                tx_description: tx.description,
+                invData: invData
+            });
+            // Use the transaction's own ID as the investmentId
+            // since investment_transactions uses transaction_id as the reference
+            metadata = {
+                investmentId: tx.id, // Use transaction ID to link back
+                investmentType: invData.investment_type,
+                assetName: invData.asset_name,
+                quantity: invData.quantity,
+                pricePerUnit: invData.price_per_unit,
+                units: invData.quantity, // Alias for compatibility
+                price: invData.price_per_unit // Alias for compatibility
+            };
+            console.log('Created investment metadata:', metadata);
+        }
+
+        // Convert to camelCase AFTER extracting metadata
+        const baseTx = keysToCamelCase(tx);
+
+        // Remove the joined tables from the transaction object
+        const { fuelTransactions, investmentTransactions, ...cleanTx } = baseTx;
+
+        const result = {
+            ...cleanTx,
+            ...(metadata && { metadata })
+        };
+
+        if (metadata) {
+            console.log('Final transaction with metadata:', result.id, result);
+        }
+
+        return result;
+    });
+
+    return transactions as Transaction[];
 };
 
 /**
@@ -337,7 +402,7 @@ export const fetchAllInvestmentTransactions = async () => {
 
     // Map to Investment interface format expected by SavingsPage
     return (data || []).map(item => ({
-        id: item.id,
+        id: item.transaction_id, // Use transaction_id as the unique identifier
         name: item.asset_name,
         type: item.investment_type,
         investedAmount: item.transaction.amount,

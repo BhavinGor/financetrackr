@@ -134,6 +134,16 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
         efficiency: log.mileage
     }));
 
+    // Format date for display (yyyy-mm-dd -> dd-mm-yyyy)
+    const formatDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        return dateStr;
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in pb-10">
 
@@ -240,7 +250,7 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
                                         ) : (
                                             vehicleLogs.map(log => (
                                                 <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="px-4 py-3">{log.date}</td>
+                                                    <td className="px-4 py-3">{formatDate(log.date)}</td>
                                                     <td className="px-4 py-3 font-medium">₹{log.cost}</td>
                                                     <td className="px-4 py-3 text-slate-500">{log.liters}</td>
                                                 </tr>

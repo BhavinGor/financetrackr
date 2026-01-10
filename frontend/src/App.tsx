@@ -266,7 +266,10 @@ const App = () => {
             const txId = await addTransactionWithExtensions(transaction, fuelData);
             // Update local state
             setTransactions(prev => [{ ...transaction, id: txId }, ...prev]);
-            // Note: fuelLogs is deprecated, keeping empty for compatibility
+
+            // Refresh fuel logs to show in Vehicles tab immediately
+            const fuelTxs = await fetchAllFuelTransactions();
+            setFuelLogs(fuelTxs as any);
         } catch (error) {
             console.error("Failed to add fuel log:", error);
         }
