@@ -35,6 +35,8 @@ create table transactions (
   category text not null,
   description text,
   source text default 'manual', -- manual, gmail, csv
+  is_fuel boolean default false,
+  is_investment boolean default false,
   created_at timestamp with time zone default now()
 );
 
@@ -47,14 +49,13 @@ create table budgets (
   created_at timestamp with time zone default now()
 );
 
--- Fuel Logs table
-create table fuel_logs (
-  id uuid default uuid_generate_v4() primary key,
+-- Fuel Transactions extension table
+create table fuel_transactions (
+  transaction_id uuid primary key
+    references transactions(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade not null,
-  vehicle_id uuid, -- Link to a vehicles table if needed, or just store metadata
-  date date not null,
+  vehicle_id uuid references vehicles(id) on delete restrict,
   liters numeric not null,
-  cost numeric not null,
   mileage numeric,
   created_at timestamp with time zone default now()
 );
@@ -73,16 +74,15 @@ create table vehicles (
   created_at timestamp with time zone default now()
 );
 
--- Investments table
-create table investments (
-  id uuid default uuid_generate_v4() primary key,
+-- Investment Transactions extension table
+create table investment_transactions (
+  transaction_id uuid primary key
+    references transactions(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade not null,
-  name text not null,
-  type text not null, -- Indian Stock, Mutual Fund, etc.
-  invested_amount numeric not null,
-  current_value numeric not null,
+  investment_type text not null,
+  asset_name text not null,
   quantity numeric,
-  date date not null,
+  price_per_unit numeric,
   created_at timestamp with time zone default now()
 );
 
@@ -91,9 +91,9 @@ alter table profiles enable row level security;
 alter table accounts enable row level security;
 alter table transactions enable row level security;
 alter table budgets enable row level security;
-alter table fuel_logs enable row level security;
+alter table fuel_transactions enable row level security;
 alter table vehicles enable row level security;
-alter table investments enable row level security;
+alter table investment_transactions enable row level security;
 
 -- Profiles policies
 create policy "Public profiles are viewable by everyone." on profiles for select using ( true );
@@ -118,11 +118,8 @@ create policy "Users can insert own budgets." on budgets for insert with check (
 create policy "Users can update own budgets." on budgets for update using ( auth.uid() = user_id );
 create policy "Users can delete own budgets." on budgets for delete using ( auth.uid() = user_id );
 
--- Fuel Logs policies
-create policy "Users can view own fuel logs." on fuel_logs for select using ( auth.uid() = user_id );
-create policy "Users can insert own fuel logs." on fuel_logs for insert with check ( auth.uid() = user_id );
-create policy "Users can update own fuel logs." on fuel_logs for update using ( auth.uid() = user_id );
-create policy "Users can delete own fuel logs." on fuel_logs for delete using ( auth.uid() = user_id );
+-- Fuel Transactions policies
+create policy "Users manage own fuel transactions" on fuel_transactions for all using ( auth.uid() = user_id ) with check ( auth.uid() = user_id );
 
 -- Vehicles policies
 create policy "Users can view own vehicles." on vehicles for select using ( auth.uid() = user_id );
@@ -130,11 +127,8 @@ create policy "Users can insert own vehicles." on vehicles for insert with check
 create policy "Users can update own vehicles." on vehicles for update using ( auth.uid() = user_id );
 create policy "Users can delete own vehicles." on vehicles for delete using ( auth.uid() = user_id );
 
--- Investments policies
-create policy "Users can view own investments." on investments for select using ( auth.uid() = user_id );
-create policy "Users can insert own investments." on investments for insert with check ( auth.uid() = user_id );
-create policy "Users can update own investments." on investments for update using ( auth.uid() = user_id );
-create policy "Users can delete own investments." on investments for delete using ( auth.uid() = user_id );
+-- Investment Transactions policies
+create policy "Users manage own investment transactions" on investment_transactions for all using ( auth.uid() = user_id ) with check ( auth.uid() = user_id );
 
 -- Custom Categories table
 create table custom_categories (
@@ -151,6 +145,55 @@ alter table custom_categories enable row level security;
 create policy "Users can view own categories." on custom_categories for select using ( auth.uid() = user_id );
 create policy "Users can insert own categories." on custom_categories for insert with check ( auth.uid() = user_id );
 create policy "Users can delete own categories." on custom_categories for delete using ( auth.uid() = user_id );
+
+-- Validation Triggers for Transaction Extensions
+create or replace function validate_fuel_transaction()
+returns trigger as $$
+begin
+  if not exists (
+    select 1
+    from transactions
+    where id = new.transaction_id
+      and is_fuel = true
+  ) then
+    raise exception 'Transaction % is not marked as fuel', new.transaction_id;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger fuel_transaction_validation
+before insert or update on fuel_transactions
+for each row
+execute procedure validate_fuel_transaction();
+
+create or replace function validate_investment_transaction()
+returns trigger as $$
+begin
+  if not exists (
+    select 1
+    from transactions
+    where id = new.transaction_id
+      and is_investment = true
+  ) then
+    raise exception 'Transaction % is not marked as investment', new.transaction_id;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger investment_transaction_validation
+before insert or update on investment_transactions
+for each row
+execute procedure validate_investment_transaction();
+
+-- Performance Indexes
+create index on transactions (user_id, date desc);
+create index on transactions (account_id);
+create index on fuel_transactions (vehicle_id);
+create index on investment_transactions (asset_name);
 
 -- Function to handle new user creation
 create or replace function public.handle_new_user()

@@ -7,18 +7,19 @@ import { BudgetPage } from './pages/Budget';
 import { VehiclesPage } from './pages/Vehicles';
 import { SavingsPage } from './pages/Savings';
 import { SettingsPage } from './pages/Profile';
+import { LoginPage } from './pages/Login';
 import { supabase } from './services/supabase/client';
 import {
     fetchTransactions, addTransactionToDb, updateTransactionInDb, deleteTransactionFromDb,
     fetchAccounts, addAccountToDb, updateAccountInDb, deleteAccountFromDb,
     fetchBudgets, saveBudgetsToDb,
     fetchVehicles, addVehicleToDb, updateVehicleInDb, deleteVehicleFromDb,
-    fetchFuelLogs, addFuelLogToDb,
-    fetchInvestments, addInvestmentToDb, updateInvestmentInDb, deleteInvestmentFromDb
+    addTransactionWithExtensions,
+    addInvestmentToDb, updateInvestmentInDb, deleteInvestmentFromDb
 } from './services/supabase/database';
 import { fetchGmailTransactions } from './services/external/gmail';
 import { Loader2 } from 'lucide-react';
-import { Transaction, Account, Budget, ViewState, Vehicle, FuelLog, Investment } from './types/index';
+import { Transaction, Account, Budget, ViewState, Vehicle, FuelLog, Investment, TransactionType, Category } from './types/index';
 
 // Helper to calculate spent amount for current month
 const calculateBudgetSpent = (category: string, transactions: Transaction[]): number => {
@@ -69,20 +70,25 @@ const App = () => {
                 const { data: { session } } = await supabase.auth.getSession();
                 setSession(session);
 
-                const [txs, accs, bgs, vh, fl, inv] = await Promise.all([
+                // Only fetch data if user is authenticated
+                if (!session) {
+                    setLoading(false);
+                    return;
+                }
+
+                const [txs, accs, bgs, vh] = await Promise.all([
                     fetchTransactions(),
                     fetchAccounts(),
                     fetchBudgets(),
-                    fetchVehicles(),
-                    fetchFuelLogs(),
-                    fetchInvestments()
+                    fetchVehicles()
+                    // Note: fuel and investment data now comes via transaction extensions
                 ]);
 
                 setTransactions(txs);
                 setAccounts(accs);
                 setVehicles(vh);
-                setFuelLogs(fl);
-                setInvestments(inv);
+                setFuelLogs([]); // Deprecated - keeping state for compatibility
+                setInvestments([]); // Deprecated - keeping state for compatibility
 
                 // Calculate spent for budgets
                 const budgetsWithSpent = bgs.map(b => ({
@@ -98,7 +104,27 @@ const App = () => {
                 setLoading(false);
             }
         };
+
         loadData();
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+            if (session) {
+                // User logged in, reload data
+                loadData();
+            } else {
+                // User logged out, clear data
+                setTransactions([]);
+                setAccounts([]);
+                setVehicles([]);
+                setFuelLogs([]);
+                setInvestments([]);
+                setBudgets([]);
+            }
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
     // Recalculate budgets when transactions change
@@ -205,25 +231,66 @@ const App = () => {
     };
 
     const handleAddFuelLog = async (log: FuelLog) => {
-        setFuelLogs(prev => [log, ...prev]);
+        if (!log.vehicleId || !accounts[0]) return;
+
+        // Create transaction with fuel extension
+        const transaction: Transaction = {
+            id: `tx_${Date.now()}`,
+            type: TransactionType.EXPENSE,
+            category: Category.FUEL,
+            description: `Fuel for vehicle`,
+            amount: log.cost,
+            date: log.date,
+            accountId: accounts[0].id, // Use first account as default
+            source: 'manual'
+        };
+
+        const fuelData = {
+            vehicleId: log.vehicleId,
+            liters: log.liters,
+            mileage: log.mileage
+        };
+
         try {
-            const id = await addFuelLogToDb(log);
-            setFuelLogs(prev => prev.map(l => l.id === log.id ? { ...l, id } : l));
+            const txId = await addTransactionWithExtensions(transaction, fuelData);
+            // Update local state
+            setTransactions(prev => [{ ...transaction, id: txId }, ...prev]);
+            // Note: fuelLogs is deprecated, keeping empty for compatibility
         } catch (error) {
             console.error("Failed to add fuel log:", error);
-            setFuelLogs(prev => prev.filter(l => l.id !== log.id));
         }
     };
 
     // Investments
     const handleAddInvestment = async (inv: Investment) => {
-        setInvestments(prev => [inv, ...prev]);
+        if (!accounts[0]) return;
+
+        // Create transaction with investment extension
+        const transaction: Transaction = {
+            id: `tx_${Date.now()}`,
+            type: TransactionType.EXPENSE, // or INCOME if selling/profit
+            category: 'Investment',
+            description: `Investment in ${inv.name}`,
+            amount: inv.investedAmount,
+            date: inv.date,
+            accountId: accounts[0].id, // Use first account as default
+            source: 'manual'
+        };
+
+        const investmentData = {
+            investmentType: inv.type,
+            assetName: inv.name,
+            quantity: inv.quantity,
+            pricePerUnit: inv.quantity ? inv.investedAmount / inv.quantity : undefined
+        };
+
         try {
-            const id = await addInvestmentToDb(inv);
-            setInvestments(prev => prev.map(i => i.id === inv.id ? { ...i, id } : i));
+            const txId = await addTransactionWithExtensions(transaction, undefined, investmentData);
+            // Update local state
+            setTransactions(prev => [{ ...transaction, id: txId }, ...prev]);
+            // Note: investments is deprecated, keeping empty for compatibility
         } catch (error) {
             console.error("Failed to add investment:", error);
-            setInvestments(prev => prev.filter(i => i.id !== inv.id));
         }
     };
 
@@ -254,6 +321,11 @@ const App = () => {
                 </div>
             </div>
         );
+    }
+
+    // Show login if no session
+    if (!session) {
+        return <LoginPage />;
     }
 
     const renderContent = () => {

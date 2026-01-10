@@ -1,7 +1,17 @@
 import React, { useState, useRef } from 'react';
 import { ConfirmModal } from './ConfirmModal';
 import { PdfImportModal } from './PdfImportModal';
-import { Account, Category, Transaction, TransactionType, AccountType } from '../types';
+import {
+  Account,
+  Category,
+  Transaction,
+  TransactionType,
+  AccountType,
+  FuelTransaction,
+  InvestmentTransaction,
+  InvestmentType,
+  Vehicle
+} from '../types';
 import { Plus, Search, Upload, Trash2, ArrowRight, X, Edit, FileUp, AlertCircle } from 'lucide-react';
 import { isPdfFile, validatePdfSize } from '../services/pdfService';
 
@@ -43,6 +53,7 @@ const formatDateToStore = (inputDateStr: string): string => {
 interface TransactionsProps {
   transactions: Transaction[];
   accounts: Account[];
+  vehicles: Vehicle[];
   onAddTransaction: (tx: Transaction) => void;
   onBulkAddTransactions: (txs: Transaction[]) => void;
   onDeleteTransaction: (id: string) => void;
@@ -60,7 +71,7 @@ interface CSVMapping {
   type: string;
 }
 
-export const Transactions: React.FC<TransactionsProps> = ({ transactions, accounts, onAddTransaction, onBulkAddTransactions, onDeleteTransaction, onEditTransaction, onAddAccount }) => {
+export const Transactions: React.FC<TransactionsProps> = ({ transactions, accounts, vehicles, onAddTransaction, onBulkAddTransactions, onDeleteTransaction, onEditTransaction, onAddAccount }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [filterText, setFilterText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,6 +101,20 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, accoun
   const [accountId, setAccountId] = useState<string>(accounts[0]?.id || '');
   const [date, setDate] = useState(formatDateDisplay(new Date().toISOString().split('T')[0]));
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Extension Metadata State
+  const [fuelMetadata, setFuelMetadata] = useState<{
+    vehicleId: string;
+    liters: string;
+    mileage: string;
+  } | null>(null);
+
+  const [investmentMetadata, setInvestmentMetadata] = useState<{
+    type: InvestmentType;
+    assetName: string;
+    quantity: string;
+    pricePerUnit: string;
+  } | null>(null);
 
   // Filter State
   const [filterMonth, setFilterMonth] = useState<string>(''); // Format: yyyy-mm

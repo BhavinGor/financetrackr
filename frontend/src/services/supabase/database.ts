@@ -161,6 +161,130 @@ export const deleteTransactionFromDb = async (id: string) => {
 };
 
 // ============================================================================
+// TRANSACTION EXTENSIONS (New system for fuel and investments)
+// ============================================================================
+
+/**
+ * Add a transaction with optional fuel or investment extensions
+ * @param transaction - Base transaction data
+ * @param fuelData - Optional fuel metadata (vehicleId, liters, mileage)
+ * @param investmentData - Optional investment metadata (type, assetName, quantity, pricePerUnit)
+ * @returns Database-generated transaction UUID
+ */
+export const addTransactionWithExtensions = async (
+    transaction: Transaction,
+    fuelData?: { vehicleId: string; liters: number; mileage?: number },
+    investmentData?: { investmentType: string; assetName: string; quantity?: number; pricePerUnit?: number }
+): Promise<string> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('No authenticated user');
+
+    // Validate mutual exclusivity
+    if (fuelData && investmentData) {
+        throw new Error('Transaction cannot be both fuel and investment');
+    }
+
+    // Validate fuel requirements
+    if (fuelData && !fuelData.vehicleId) {
+        throw new Error('Fuel transactions require a vehicle');
+    }
+
+    // Validate investment requirements
+    if (investmentData && !investmentData.assetName) {
+        throw new Error('Investment transactions require asset name');
+    }
+
+    // Set flags based on extensions
+    const txData = {
+        ...transaction,
+        is_fuel: !!fuelData,
+        is_investment: !!investmentData
+    };
+
+    // Remove unwanted fields
+    const { id, ...baseData } = txData as any;
+
+    // Insert transaction
+    const { data: txRecord, error: txError } = await supabase
+        .from('transactions')
+        .insert(keysToSnakeCase({ ...baseData, user_id: user.id }))
+        .select()
+        .single();
+
+    if (txError) throw txError;
+
+    try {
+        // Insert fuel extension if needed
+        if (fuelData) {
+            const { error: fuelError } = await supabase
+                .from('fuel_transactions')
+                .insert(keysToSnakeCase({
+                    transaction_id: txRecord.id,
+                    user_id: user.id,
+                    ...fuelData
+                }));
+
+            if (fuelError) {
+                // Rollback transaction
+                await supabase.from('transactions').delete().eq('id', txRecord.id);
+                throw fuelError;
+            }
+        }
+
+        // Insert investment extension if needed
+        if (investmentData) {
+            const { error: invError } = await supabase
+                .from('investment_transactions')
+                .insert(keysToSnakeCase({
+                    transaction_id: txRecord.id,
+                    user_id: user.id,
+                    ...investmentData
+                }));
+
+            if (invError) {
+                // Rollback transaction
+                await supabase.from('transactions').delete().eq('id', txRecord.id);
+                throw invError;
+            }
+        }
+
+        return txRecord.id;
+    } catch (error) {
+        // Ensure transaction is cleaned up on any error
+        await supabase.from('transactions').delete().eq('id', txRecord.id);
+        throw error;
+    }
+};
+
+/**
+ * Fetch fuel transactions for a specific vehicle
+ * @param vehicleId - Vehicle UUID
+ * @returns Array of fuel transaction data with joined transaction info
+ */
+export const fetchFuelTransactionsForVehicle = async (vehicleId: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('fuel_transactions')
+        .select(`
+            *,
+            transaction:transactions(*)
+        `)
+        .eq('vehicle_id', vehicleId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Transform the data to flatten transaction info
+    return (data || []).map(item => ({
+        ...keysToCamelCase(item),
+        transaction: keysToCamelCase(item.transaction)
+    }));
+};
+
+// ============================================================================
 // ACCOUNT OPERATIONS
 // ============================================================================
 
@@ -369,151 +493,61 @@ export const deleteVehicleFromDb = async (id: string) => {
 };
 
 // ============================================================================
-// FUEL LOG OPERATIONS
+// FUEL LOG OPERATIONS (DEPRECATED - Now using transaction extensions)
 // ============================================================================
 
 /**
- * Fetch all fuel logs for the current user
- * @returns Array of fuel logs, sorted by date (newest first)
+ * @deprecated Use transaction extensions instead
+ * Fetch fuel data from fuel_transactions joined with transactions
  */
 export const fetchFuelLogs = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('fuel_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false });
-
-    if (error) throw error;
-    return keysToCamelCase(data) as FuelLog[];
+    // Return empty array - fuel data now comes from transactions with fuel_transactions join
+    console.warn('fetchFuelLogs is deprecated. Fuel data is now part of transaction extensions.');
+    return [];
 };
 
 /**
- * Add a new fuel log to the database
- * @param fuelLog - Fuel log object (id will be ignored, database generates UUID)
- * @returns Database-generated UUID for the new fuel log
- * @throws Error if user is not authenticated
+ * @deprecated Use addTransactionWithExtensions instead
  */
 export const addFuelLogToDb = async (fuelLog: FuelLog): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Remove id - let database generate UUID
-    const { id, ...fuelLogData } = fuelLog;
-
-    const { data, error } = await supabase
-        .from('fuel_logs')
-        .insert(keysToSnakeCase({ ...fuelLogData, user_id: user.id }))
-        .select()
-        .single();
-
-    if (error) throw error;
-
-    return data.id;
-};
-
-/**
- * Update an existing fuel log
- * @param fuelLog - Fuel log object with updated values
- * @throws Error if update fails
- */
-export const updateFuelLogInDb = async (fuelLog: FuelLog) => {
-    const { error } = await supabase
-        .from('fuel_logs')
-        .update(keysToSnakeCase(fuelLog))
-        .eq('id', fuelLog.id);
-
-    if (error) throw error;
-};
-
-/**
- * Delete a fuel log from the database
- * @param id - Fuel log UUID
- * @throws Error if deletion fails
- */
-export const deleteFuelLogFromDb = async (id: string) => {
-    const { error } = await supabase
-        .from('fuel_logs')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw error;
+    console.warn('addFuelLogToDb is deprecated. Use addTransactionWithExtensions instead.');
+    return '';
 };
 
 // ============================================================================
-// INVESTMENT OPERATIONS
+// INVESTMENT OPERATIONS (DEPRECATED - Now using transaction extensions)
 // ============================================================================
 
 /**
- * Fetch all investments for the current user
- * @returns Array of investments, sorted by date (newest first)
+ * @deprecated Use transaction extensions instead
+ * Fetch investment data from investment_transactions joined with transactions
  */
 export const fetchInvestments = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('investments')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false });
-
-    if (error) throw error;
-    return keysToCamelCase(data) as Investment[];
+    // Return empty array - investment data now comes from transactions with investment_transactions join
+    console.warn('fetchInvestments is deprecated. Investment data is now part of transaction extensions.');
+    return [];
 };
 
 /**
- * Add a new investment to the database
- * @param investment - Investment object (id will be ignored, database generates UUID)
- * @returns Database-generated UUID for the new investment
- * @throws Error if user is not authenticated
+ * @deprecated Use addTransactionWithExtensions instead
  */
 export const addInvestmentToDb = async (investment: Investment): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Remove id - let database generate UUID. Also remove 'amount' if passed by accident
-    const { id, amount, ...investmentData } = investment as any;
-
-    const { data, error } = await supabase
-        .from('investments')
-        .insert(keysToSnakeCase({ ...investmentData, user_id: user.id }))
-        .select()
-        .single();
-
-    if (error) throw error;
-
-    return data.id;
+    console.warn('addInvestmentToDb is deprecated. Use addTransactionWithExtensions instead.');
+    return '';
 };
 
 /**
- * Update an existing investment
- * @param investment - Investment object with updated values
- * @throws Error if update fails
+ * @deprecated Use updateTransactionWithExtensions instead
  */
 export const updateInvestmentInDb = async (investment: Investment) => {
-    const { error } = await supabase
-        .from('investments')
-        .update(keysToSnakeCase(investment))
-        .eq('id', investment.id);
-
-    if (error) throw error;
+    console.warn('updateInvestmentInDb is deprecated.');
 };
 
 /**
- * Delete an investment from the database
- * @param id - Investment UUID
- * @throws Error if deletion fails
+ * @deprecated Delete the associated transaction instead
  */
 export const deleteInvestmentFromDb = async (id: string) => {
-    const { error } = await supabase
-        .from('investments')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw error;
+    console.warn('deleteInvestmentFromDb is deprecated. Delete the transaction instead.');
 };
 
 // ============================================================================
