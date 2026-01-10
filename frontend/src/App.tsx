@@ -32,7 +32,7 @@ const calculateBudgetSpent = (category: string, transactions: Transaction[]): nu
         .filter(t => {
             const tDate = new Date(t.date);
             return t.category === category &&
-                t.type === 'expense' &&
+                t.type === TransactionType.EXPENSE &&
                 tDate.getMonth() === currentMonth &&
                 tDate.getFullYear() === currentYear;
         })
@@ -386,7 +386,6 @@ const App = () => {
             case 'budget':
                 return <BudgetPage
                     budgets={budgets}
-                    transactions={transactions} // Re-added transactions prop which BudgetPage might need for internal calcs if it uses them, though we pre-calc spent.
                     onSaveBudgets={handleSaveBudgets}
                 />;
             case 'savings':

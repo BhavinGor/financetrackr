@@ -1,4 +1,4 @@
-export type ViewState = 'dashboard' | 'accounts' | 'transactions' | 'vehicles' | 'budget' | 'savings' | 'profile';
+export type ViewState = 'dashboard' | 'accounts' | 'transactions' | 'vehicles' | 'budget' | 'savings' | 'profile' | 'settings';
 
 export enum AccountType {
   CHECKING = 'Checking',
