@@ -6,6 +6,7 @@ Handles PDF upload, parsing, and transaction extraction endpoints.
 This module defines the API routes for PDF processing.
 It acts as a thin controller layer, delegating business logic to services.
 """
+import os
 from flask import Blueprint, request, jsonify
 from services.pdf_extractor import (
     extract_pdf_text,
@@ -13,6 +14,8 @@ from services.pdf_extractor import (
     PDFInvalidPasswordError,
     PDFExtractionError
 )
+from services.docling_extractor import extract_pdf_content
+from llm.openrouter_client import extract_structured_data
 from services.ai_formatter import AIFormatterService
 from services.transaction_parser import parse_ai_response
 from utils.validators import validate_pdf_file
@@ -58,8 +61,11 @@ def parse_pdf():
         - 500: Extraction or processing error
     """
     try:
+        use_docling = os.getenv('USE_DOCLING', 'false').lower() == 'true'
+        use_openrouter = os.getenv('USE_OPENROUTER', 'false').lower() == 'true'
+        
         logger.info('='*70)
-        logger.info('📄 PDF PARSING WITH PDFPLUMBER + NOVA PRO')
+        logger.info(f'📄 PDF PARSING STARTED (Docling={use_docling}, OpenRouter={use_openrouter})')
         logger.info('='*70)
         
         # STEP 1: Validate request
@@ -74,60 +80,96 @@ def parse_pdf():
         logger.info(f'File name: {file.filename}')
         if password:
             logger.info('Password provided for encrypted PDF')
-        
+            
         # STEP 2: Extract text from PDF
-        pdf_bytes = file.read()
+        extracted_text = None
         
+        # Save file temporarily for Docling if needed (Docling often requires a path)
+        # Using a temp file is safer for libraries that act on paths
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+            file.save(temp_pdf.name)
+            temp_pdf_path = temp_pdf.name
+            
         try:
-            extracted_text = extract_pdf_text(pdf_bytes, password)
-        except PDFPasswordRequiredError:
-            return jsonify({
-                'error': 'PDF_PASSWORD_REQUIRED',
-                'message': 'This PDF is password-protected. Please provide a password.'
-            }), 401
-        except PDFInvalidPasswordError:
-            return jsonify({
-                'error': 'PDF_INVALID_PASSWORD',
-                'message': 'Invalid password. Please try again.'
-            }), 401
-        except PDFExtractionError as e:
-            return jsonify({
-                'error': 'EXTRACTION_FAILED',
-                'message': str(e)
-            }), 500
+            if use_docling:
+                try:
+                    logger.info("Attempting extraction with Docling...")
+                    docling_result = extract_pdf_content(temp_pdf_path)
+                    extracted_text = docling_result['raw_text']
+                    # Could also use 'tables' if we want to enhance the prompt later
+                except Exception as e:
+                    logger.error(f"Docling extraction failed: {e}")
+                    # Fallback to legacy if configured or just fail? 
+                    # Requirement says "Allow fallback to old Bedrock pipeline if disabled"
+                    # It doesn't explicitly say fallback on error, but it's good practice.
+                    # For now, let's fall back to legacy extraction if Docling fails
+                    logger.info("Falling back to legacy PDF extraction...")
+                    file.seek(0) # Reset file pointer for legacy read
+                    extracted_text = extract_pdf_text(file.read(), password)
+            else:
+                layout = False # Default legacy behavior
+                file.seek(0)
+                extracted_text = extract_pdf_text(file.read(), password)
+                
+        except (PDFPasswordRequiredError, PDFInvalidPasswordError, PDFExtractionError) as e:
+            # Clean up temp file
+            if os.path.exists(temp_pdf_path):
+                os.unlink(temp_pdf_path)
+            
+            error_map = {
+                PDFPasswordRequiredError: ('PDF_PASSWORD_REQUIRED', 'This PDF is password-protected. Please provide a password.', 401),
+                PDFInvalidPasswordError: ('PDF_INVALID_PASSWORD', 'Invalid password. Please try again.', 401),
+                PDFExtractionError: ('EXTRACTION_FAILED', str(e), 500)
+            }
+            err_code, err_msg, status = error_map.get(type(e), ('EXTRACTION_FAILED', str(e), 500))
+            return jsonify({'error': err_code, 'message': err_msg}), status
+            
+        finally:
+            if os.path.exists(temp_pdf_path):
+                os.unlink(temp_pdf_path)
         
         if not extracted_text:
             return jsonify({
                 'error': 'EXTRACTION_FAILED',
                 'message': 'Could not extract text from PDF'
             }), 500
+            
+        # STEP 3 & 4: Format and Parse
+        extracted_data = None
         
-        # STEP 3: Format with Nova Pro
-        try:
-            response_text = ai_formatter.format_transactions(extracted_text)
-        except Exception as e:
-            logger.error(f'AI formatting failed: {str(e)}')
-            return jsonify({
-                'error': 'FORMAT_FAILED',
-                'message': 'Could not format extracted text with AI'
-            }), 500
-        
-        # STEP 4: Parse JSON response
-        try:
-            extracted_data = parse_ai_response(response_text)
-        except ValueError as e:
-            logger.error(f'JSON parsing failed: {str(e)}')
-            return jsonify({
-                'error': 'PARSE_FAILED',
-                'message': 'Could not parse AI response as JSON'
-            }), 500
+        if use_openrouter:
+            try:
+                logger.info("Processing with OpenRouter...")
+                extracted_data = extract_structured_data(extracted_text)
+            except Exception as e:
+                logger.error(f"OpenRouter processing failed: {e}")
+                # Fallback to Bedrock if OpenRouter fails?
+                # User said: "If all models fail -> return a hard failure with logs"
+                # But also "Allow fallback to old Bedrock pipeline if disabled"
+                # It's safer to fail hard here as requested for Part 3 Fallback Rules.
+                return jsonify({
+                    'error': 'PROCESSING_FAILED',
+                    'message': f'AI processing failed: {str(e)}'
+                }), 500
+        else:
+            # Legacy Bedrock Flow
+            try:
+                response_text = ai_formatter.format_transactions(extracted_text)
+                extracted_data = parse_ai_response(response_text)
+            except Exception as e:
+                logger.error(f'Legacy processing failed: {str(e)}')
+                return jsonify({
+                    'error': 'PROCESSING_FAILED',
+                    'message': str(e)
+                }), 500
         
         transactions_count = len(extracted_data.get('transactions', []))
         logger.info('='*70)
         logger.info(f'✅ PDF PARSING COMPLETE - {transactions_count} transactions extracted')
         logger.info('='*70)
         
-        # Return in the format expected by frontend
         return jsonify({
             'success': True,
             'data': extracted_data

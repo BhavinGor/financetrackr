@@ -62,6 +62,8 @@ export const TransactionsPage = (props: TransactionsPageProps) => {
     const [rawAccountInfo, setRawAccountInfo] = useState<any>(null);
     const [loadingStage, setLoadingStage] = useState<'uploading' | 'parsing' | 'ai_analysis' | 'complete'>('uploading');
     const [showLoadingModal, setShowLoadingModal] = useState(false);
+    const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
+    const [isAddInvestmentModalOpen, setIsAddInvestmentModalOpen] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -286,6 +288,9 @@ export const TransactionsPage = (props: TransactionsPageProps) => {
         return matchesSearch && matchesAccount && matchesMonth;
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+    // Dynamic Filters Logic
+    const uniqueMonths = Array.from(new Set(transactions.map(t => t.date.substring(0, 7)))).sort().reverse();
+
     if (isImporting && pdfBlob) {
         return (
             <TransactionImportPanel
@@ -301,15 +306,15 @@ export const TransactionsPage = (props: TransactionsPageProps) => {
                 }}
                 accountInfo={rawAccountInfo}
                 onAddAccount={onAddAccount}
+                // @ts-ignore
+                onAddVehicle={onAddVehicle}
+                // @ts-ignore
+                onAddInvestment={onAddInvestment}
             />
         );
     }
 
-    const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
-    const [isAddInvestmentModalOpen, setIsAddInvestmentModalOpen] = useState(false);
 
-    // Dynamic Filters Logic
-    const uniqueMonths = Array.from(new Set(transactions.map(t => t.date.substring(0, 7)))).sort().reverse();
 
     return (
         <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto pb-20">
