@@ -10,7 +10,7 @@ const PDF_API_URL = 'http://localhost:5000/api/pdf/parse';
  * @param password - Optional password for encrypted PDFs
  * @returns Extracted text from PDF
  */
-export const parsePdfFile = async (file: File, password?: string): Promise<string> => {
+export const parsePdfFile = async (file: File, password?: string): Promise<any> => {
     try {
         // Create form data
         const formData = new FormData();
@@ -45,9 +45,9 @@ export const parsePdfFile = async (file: File, password?: string): Promise<strin
 
         console.log('✅ PDF parsed successfully');
         console.log('   Pages:', data.pages);
-        console.log('   Text length:', data.text_length);
+        console.log('   Transactions found:', data.data?.transactions?.length);
 
-        return data.text;
+        return data;
     } catch (error: any) {
         console.error('❌ PDF parsing error:', error);
 
