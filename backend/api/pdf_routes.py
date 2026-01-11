@@ -7,6 +7,7 @@ This module defines the API routes for PDF processing.
 It acts as a thin controller layer, delegating business logic to services.
 """
 import os
+import io
 from flask import Blueprint, request, jsonify
 from services.pdf_extractor import (
     extract_pdf_text,
@@ -84,51 +85,115 @@ def parse_pdf():
         # STEP 2: Extract text from PDF
         extracted_text = None
         
-        # Save file temporarily for Docling if needed (Docling often requires a path)
-        # Using a temp file is safer for libraries that act on paths
-        import tempfile
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
-            file.save(temp_pdf.name)
-            temp_pdf_path = temp_pdf.name
-            
+        # Pre-check for encryption using PyPDF2 (fast)
+        import PyPDF2
+        is_encrypted = False
         try:
+            # We need to read some bytes or the whole file to check encryption
+            # Since file is a stream, we read it all into memory first (it's loaded anyway by Flask)
+            pdf_bytes = file.read()
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+            is_encrypted = pdf_reader.is_encrypted
+            file.seek(0) # Reset after reading
+        except Exception as e:
+            logger.warning(f"Could not check encryption status: {e}")
+            file.seek(0)
+            
+        if is_encrypted:
+            logger.info("🔒 PDF is encrypted.")
+            # Verify password presence
+            if not password:
+                 return jsonify({
+                    'error': 'PDF_PASSWORD_REQUIRED',
+                    'message': 'This PDF is password-protected. Please provide a password.'
+                }), 401
+            
             if use_docling:
                 try:
-                    logger.info("Attempting extraction with Docling...")
-                    docling_result = extract_pdf_content(temp_pdf_path)
-                    extracted_text = docling_result['raw_text']
-                    # Could also use 'tables' if we want to enhance the prompt later
+                    logger.info("🔓 Decrypting PDF for Docling analysis...")
+                    # Decrypt and save to temp file
+                    pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+                    if not pdf_reader.decrypt(password):
+                         # If decrypt returns 0/False, password is wrong
+                         return jsonify({
+                            'error': 'PDF_INVALID_PASSWORD',
+                            'message': 'Invalid password. Please try again.'
+                        }), 401
+
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_decrypted:
+                        writer = PyPDF2.PdfWriter()
+                        # Add all pages to writer
+                        for page in pdf_reader.pages:
+                            writer.add_page(page)
+                        writer.write(temp_decrypted)
+                        temp_decrypted_path = temp_decrypted.name
+                        # IMPORTANT: Close the file so simple file system calls can read it without locking/buffering issues.
+                        temp_decrypted.close()
+                    
+                    try:
+                        logger.info(f"Attempting extraction with Docling on decrypted file: {temp_decrypted_path}")
+                        docling_result = extract_pdf_content(temp_decrypted_path)
+                        extracted_text = docling_result['raw_text']
+                    finally:
+                        # Clean up decrypted temp file
+                        if os.path.exists(temp_decrypted_path):
+                            os.unlink(temp_decrypted_path)
+                            
                 except Exception as e:
-                    logger.error(f"Docling extraction failed: {e}")
-                    # Fallback to legacy if configured or just fail? 
-                    # Requirement says "Allow fallback to old Bedrock pipeline if disabled"
-                    # It doesn't explicitly say fallback on error, but it's good practice.
-                    # For now, let's fall back to legacy extraction if Docling fails
+                    logger.error(f"Docling encrypted extraction failed: {e}")
                     logger.info("Falling back to legacy PDF extraction...")
-                    file.seek(0) # Reset file pointer for legacy read
-                    extracted_text = extract_pdf_text(file.read(), password)
+                    extracted_text = extract_pdf_text(pdf_bytes, password)
             else:
-                layout = False # Default legacy behavior
-                file.seek(0)
-                extracted_text = extract_pdf_text(file.read(), password)
+                # Using legacy extractor for encrypted files
+                extracted_text = extract_pdf_text(pdf_bytes, password)
+            
+        else:
+            # Not encrypted (or check failed), proceed with Docling preference
+            
+            # Save file temporarily for Docling
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+                # If we read bytes already, write them
+                if 'pdf_bytes' in locals():
+                    temp_pdf.write(pdf_bytes)
+                else:
+                     file.save(temp_pdf.name)
+                temp_pdf_path = temp_pdf.name
                 
-        except (PDFPasswordRequiredError, PDFInvalidPasswordError, PDFExtractionError) as e:
-            # Clean up temp file
-            if os.path.exists(temp_pdf_path):
-                os.unlink(temp_pdf_path)
-            
-            error_map = {
-                PDFPasswordRequiredError: ('PDF_PASSWORD_REQUIRED', 'This PDF is password-protected. Please provide a password.', 401),
-                PDFInvalidPasswordError: ('PDF_INVALID_PASSWORD', 'Invalid password. Please try again.', 401),
-                PDFExtractionError: ('EXTRACTION_FAILED', str(e), 500)
-            }
-            err_code, err_msg, status = error_map.get(type(e), ('EXTRACTION_FAILED', str(e), 500))
-            return jsonify({'error': err_code, 'message': err_msg}), status
-            
-        finally:
-            if os.path.exists(temp_pdf_path):
-                os.unlink(temp_pdf_path)
+            try:
+                if use_docling:
+                    try:
+                        logger.info("Attempting extraction with Docling...")
+                        docling_result = extract_pdf_content(temp_pdf_path)
+                        extracted_text = docling_result['raw_text']
+                    except Exception as e:
+                        logger.error(f"Docling extraction failed: {e}")
+                        logger.info("Falling back to legacy PDF extraction...")
+                        # If we haven't read bytes yet (should have in encryption check, but to be safe)
+                        file.seek(0)
+                        extracted_text = extract_pdf_text(file.read(), password)
+                else:
+                    layout = False # Default legacy behavior
+                    file.seek(0)
+                    extracted_text = extract_pdf_text(file.read(), password)
+                    
+            except (PDFPasswordRequiredError, PDFInvalidPasswordError, PDFExtractionError) as e:
+                # Clean up temp file
+                if os.path.exists(temp_pdf_path):
+                    os.unlink(temp_pdf_path)
+                
+                error_map = {
+                    PDFPasswordRequiredError: ('PDF_PASSWORD_REQUIRED', 'This PDF is password-protected. Please provide a password.', 401),
+                    PDFInvalidPasswordError: ('PDF_INVALID_PASSWORD', 'Invalid password. Please try again.', 401),
+                    PDFExtractionError: ('EXTRACTION_FAILED', str(e), 500)
+                }
+                err_code, err_msg, status = error_map.get(type(e), ('EXTRACTION_FAILED', str(e), 500))
+                return jsonify({'error': err_code, 'message': err_msg}), status
+                
+            finally:
+                if os.path.exists(temp_pdf_path):
+                    os.unlink(temp_pdf_path)
         
         if not extracted_text:
             return jsonify({
@@ -145,10 +210,6 @@ def parse_pdf():
                 extracted_data = extract_structured_data(extracted_text)
             except Exception as e:
                 logger.error(f"OpenRouter processing failed: {e}")
-                # Fallback to Bedrock if OpenRouter fails?
-                # User said: "If all models fail -> return a hard failure with logs"
-                # But also "Allow fallback to old Bedrock pipeline if disabled"
-                # It's safer to fail hard here as requested for Part 3 Fallback Rules.
                 return jsonify({
                     'error': 'PROCESSING_FAILED',
                     'message': f'AI processing failed: {str(e)}'

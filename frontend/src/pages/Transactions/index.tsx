@@ -261,8 +261,100 @@ export const TransactionsPage = (props: TransactionsPageProps) => {
                 throw new Error("No data found in PDF");
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("PDF Process Error", error);
+
+            // Handle Password Required
+            if (error.message === 'PDF_PASSWORD_REQUIRED' || error.message === 'PDF_INVALID_PASSWORD') {
+                const password = prompt(error.message === 'PDF_INVALID_PASSWORD' ? "Invalid Password. Please try again:" : "This PDF is password protected. Please enter the password:");
+                if (password) {
+                    // Retry with password
+                    try {
+                        const response = await parsePdfFile(file, password);
+                        if (response && response.success && response.data) {
+                            // SUCCESS - Exact same success logic (duplicated for now to keep it simple locally)
+                            // Ideally refactor this logic into a processResponse function
+                            const { transactions: rawTxs, accountInfo, extractionQuality } = response.data;
+                            // ... (Reuse processing logic? It's too long to duplicate easily. Let's recurse or refactor)
+                            // To avoid massive duplication in this patch, I will just call handleFileUpload again but that requires event... 
+                            // Better: Extract success logic. But I can't refactor easily in one tool call.
+                            // Hack: Just call a helper.
+
+                            // Creating a helper function inside the component or just copying the critical parts for this fix.
+                            // Given the constraints, I'll copy the processing logic or rely on the user to re-upload with password if I could passed it.
+                            // But parsePdfFile is called here.
+
+                            // Let's refactor `handleFileUpload` slightly to support recursion/password arg? No, event signature matches.
+
+                            // Let's just duplicate the success handling logic for the retry. It's safe.
+                            const parsedAccounts: any[] = [];
+                            if (accountInfo) {
+                                const last4 = accountInfo.accountNumber ? accountInfo.accountNumber.slice(-4) : 'XXXX';
+                                parsedAccounts.push({
+                                    name: `${accountInfo.bankName || 'Bank'} - ${last4} `,
+                                    bankName: accountInfo.bankName || 'Unknown Bank',
+                                    accountNumber: accountInfo.accountNumber,
+                                    balance: accountInfo.closingBalance || accountInfo.primaryBalance || '0',
+                                    type: 'Savings',
+                                    isPrimary: true
+                                });
+                                if (accountInfo.linkedAccounts && Array.isArray(accountInfo.linkedAccounts)) {
+                                    accountInfo.linkedAccounts.forEach((acc: any) => {
+                                        const lLast4 = acc.accountNumber ? acc.accountNumber.slice(-4) : 'XXXX';
+                                        parsedAccounts.push({
+                                            name: `${acc.name || 'Linked Account'} - ${lLast4} `,
+                                            bankName: accountInfo.bankName,
+                                            accountNumber: acc.accountNumber,
+                                            balance: acc.balance || '0',
+                                            type: acc.name?.includes('PPF') ? 'Investment' : 'Savings',
+                                            isLinked: true
+                                        });
+                                    });
+                                }
+                            }
+
+                            const mappedTxs = Array.isArray(rawTxs) ? rawTxs.map((tx: any, index: number) => {
+                                let type = TransactionType.EXPENSE;
+                                const rawType = tx.type?.toLowerCase() || '';
+                                if (rawType.includes('deposit') || rawType.includes('credit')) {
+                                    type = TransactionType.INCOME;
+                                }
+                                return {
+                                    id: `import_${Date.now()}_${index}`,
+                                    date: normalizeDate(tx.date),
+                                    description: tx.description,
+                                    amount: typeof tx.amount === 'string' ? parseFloat(tx.amount.replace(/,/g, '')) : tx.amount,
+                                    type: type,
+                                    category: tx.category || 'Other',
+                                    accountId: accounts[0]?.id || ''
+                                };
+                            }) : [];
+
+                            setScannedTransactions(mappedTxs);
+                            setRawAccountInfo({
+                                ...accountInfo,
+                                parsedAccounts,
+                                extractionQuality
+                            });
+                            setLoadingStage('complete');
+                            setTimeout(() => {
+                                setShowLoadingModal(false);
+                                setIsImporting(true);
+                            }, 500);
+                            return;
+                        }
+                    } catch (retryError) {
+                        console.error("Retry failed", retryError);
+                        alert("Failed to process PDF with provided password.");
+                    }
+                } else {
+                    // User cancelled password prompt
+                    setShowLoadingModal(false);
+                    setLoadingStage('uploading'); // Reset
+                }
+                return;
+            }
+
             alert("Failed to process PDF. Please check the file and try again.");
             setPdfBlob(null);
             setShowLoadingModal(false);
