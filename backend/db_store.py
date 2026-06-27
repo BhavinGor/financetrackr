@@ -114,11 +114,12 @@ def get_transactions(user_id: str) -> List[Dict[str, Any]]:
         tx = dict(r)
         vehicle_id = tx.pop('vehicle_id', None)
         if vehicle_id:
+            mileage = tx.pop('mileage', None)
             tx['metadata'] = {
                 'vehicleId': vehicle_id,
                 'liters': tx.pop('liters', None),
-                'mileage': tx.pop('mileage', None),
-                'odometer': tx.pop('mileage', None),
+                'mileage': mileage,
+                'odometer': mileage,
             }
         else:
             tx.pop('liters', None)
@@ -126,14 +127,16 @@ def get_transactions(user_id: str) -> List[Dict[str, Any]]:
 
         asset_name = tx.pop('asset_name', None)
         if asset_name:
+            quantity = tx.pop('quantity', None)
+            price_per_unit = tx.pop('price_per_unit', None)
             tx['metadata'] = {
                 'investmentId': tx['id'],
                 'investmentType': tx.pop('investment_type', None),
                 'assetName': asset_name,
-                'quantity': tx.pop('quantity', None),
-                'units': tx.pop('quantity', None),
-                'pricePerUnit': tx.pop('price_per_unit', None),
-                'price': tx.pop('price_per_unit', None),
+                'quantity': quantity,
+                'units': quantity,
+                'pricePerUnit': price_per_unit,
+                'price': price_per_unit,
             }
         else:
             tx.pop('investment_type', None)

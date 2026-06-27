@@ -36,7 +36,13 @@ const App = () => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
-      if (!session) return;
+      if (!session) {
+        useTransactionStore.setState({ loading: false });
+        useAccountStore.setState({ loading: false });
+        useVehicleStore.setState({ loading: false });
+        useBudgetStore.setState({ loading: false });
+        return;
+      }
 
       await Promise.all([
         loadTransactions(),
@@ -53,10 +59,10 @@ const App = () => {
       if (session) {
         init();
       } else {
-        useTransactionStore.setState({ transactions: [], fuelLogs: [], investments: [] });
-        useAccountStore.setState({ accounts: [] });
-        useVehicleStore.setState({ vehicles: [] });
-        useBudgetStore.setState({ budgets: [] });
+        useTransactionStore.setState({ transactions: [], fuelLogs: [], investments: [], loading: false });
+        useAccountStore.setState({ accounts: [], loading: false });
+        useVehicleStore.setState({ vehicles: [], loading: false });
+        useBudgetStore.setState({ budgets: [], loading: false });
       }
     });
 

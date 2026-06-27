@@ -29,12 +29,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     type TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT 'Other',
     description TEXT NOT NULL DEFAULT '',
-    account_id TEXT NOT NULL,
+    account_id TEXT,
     source TEXT DEFAULT 'manual',
     notes TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS budgets (
