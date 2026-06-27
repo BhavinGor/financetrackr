@@ -2,7 +2,7 @@
 
 # Start Python PDF API in background
 echo "🚀 Starting PDF Parser API..."
-python3 pdf_api.py &
+python3 backend/main.py &
 PDF_PID=$!
 
 # Wait for API to start

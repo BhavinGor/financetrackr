@@ -33,11 +33,20 @@ class Config:
     # Flask Configuration
     DEBUG = os.getenv('FLASK_DEBUG', 'True') == 'True'
     PORT = int(os.getenv('FLASK_PORT', 5000))
+    SQLITE_DB_PATH = os.getenv('SQLITE_DB_PATH', os.path.join(os.path.dirname(__file__), 'data', 'financetrackr.db'))
     
     # AWS Bedrock Configuration
     AWS_ACCESS_KEY_ID = os.getenv('VITE_AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.getenv('VITE_AWS_SECRET_ACCESS_KEY')
     AWS_REGION = os.getenv('VITE_AWS_REGION', 'us-east-1')
+    USE_OLLAMA = os.getenv('USE_OLLAMA', 'true').lower() == 'true'
+    OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')
+    OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.2:latest')
+    OCR_PROVIDER = os.getenv('OCR_PROVIDER', 'legacy').lower()  # legacy | docling | lighton_hf | ollama_lighton
+    OCR_MODEL_ID = os.getenv('OCR_MODEL_ID', 'lightonai/LightOnOCR-2-1B')  # for lighton_hf
+    OCR_OLLAMA_URL = os.getenv('OCR_OLLAMA_URL', OLLAMA_URL)
+    OCR_OLLAMA_MODEL = os.getenv('OCR_OLLAMA_MODEL', 'maternion/LightOnOCR-2')
+    JSON_PROVIDER = os.getenv('JSON_PROVIDER', 'ollama' if USE_OLLAMA else 'bedrock').lower()  # ollama | bedrock | openrouter
     
     # CORS Configuration
     ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
@@ -52,8 +61,8 @@ class Config:
     @classmethod
     def validate(cls):
         """Validate that required configuration is present"""
-        if not cls.AWS_ACCESS_KEY_ID or not cls.AWS_SECRET_ACCESS_KEY:
+        if cls.JSON_PROVIDER == 'bedrock' and (not cls.AWS_ACCESS_KEY_ID or not cls.AWS_SECRET_ACCESS_KEY):
             raise ValueError(
-                "AWS credentials not found. Please set VITE_AWS_ACCESS_KEY_ID "
-                "and VITE_AWS_SECRET_ACCESS_KEY in your .env.local file"
+                "AWS credentials not found. Either set JSON_PROVIDER=ollama/openrouter "
+                "or configure VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY."
             )

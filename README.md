@@ -1,258 +1,111 @@
 # FinanceTrackr
 
-A comprehensive personal finance management application built with React, TypeScript, Python, and Supabase.
+FinanceTrackr runs as:
+- React frontend (`frontend/`)
+- Flask backend (`backend/`)
+- Local auth (browser storage)
+- Local app data in SQLite (`backend/data/financetrackr.db` by default)
 
-## Features
+## 1) Install
 
-- 📊 **Dashboard** - Visual overview of your finances with charts and insights
-- 💰 **Transactions** - Track income and expenses with PDF/CSV import
-- 🏦 **Accounts** - Manage multiple bank accounts and credit cards
-- 📈 **Budget** - Set and monitor spending limits by category
-- 🚗 **Vehicles** - Track vehicle expenses and fuel logs
-- 💼 **Investments** - Monitor investment portfolio
-- 🤖 **AI Insights** - Get financial advice powered by AWS Bedrock
-
-## Project Structure
-
-```
-financetrackr/
-├── frontend/                    # React + TypeScript frontend
-│   ├── src/
-│   │   ├── main.tsx            # Entry point
-│   │   ├── App.tsx             # Main app component
-│   │   ├── pages/              # Page components
-│   │   ├── components/         # Reusable components
-│   │   ├── services/           # API client layer
-│   │   ├── types/              # TypeScript types
-│   │   └── constants/          # App constants
-│   ├── index.html              # HTML entry point
-│   └── README.md               # Frontend documentation
-│
-├── backend/                     # Python Flask backend
-│   ├── main.py                 # Application entry point
-│   ├── config.py               # Configuration
-│   ├── api/                    # API routes
-│   ├── services/               # Business logic
-│   ├── middleware/             # Middleware
-│   ├── utils/                  # Utilities
-│   └── README.md               # Backend documentation
-│
-├── database/                    # Database schema
-│   └── schema.sql              # Supabase schema
-│
-├── .env.local.example          # Environment variables template
-├── vite.config.ts              # Vite configuration
-├── package.json                # Frontend dependencies
-└── README.md                   # This file
-```
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- Python 3.8+
-- Supabase account
-- AWS account (for AI features)
-
-### Installation
-
-1. **Clone and install dependencies:**
 ```bash
-# Install frontend dependencies
 npm install
-
-# Install backend dependencies
 pip install -r backend/requirements.txt
 ```
 
-2. **Set up environment variables:**
+Optional OCR extras (needed for `docling`, `lighton_hf`, or `ollama_lighton` because PDF pages are rendered as images):
 
-Copy `.env.local.example` to `.env.local` and fill in your credentials:
+```bash
+pip install -r backend/requirements-ocr.txt
+```
+
+## 2) Ollama Models
+
+For your setup:
+
+```bash
+ollama pull llama3.2:latest
+ollama pull maternion/LightOnOCR-2
+```
+
+Quick checks:
+
+```bash
+ollama run llama3.2:latest "say ok"
+ollama run maternion/LightOnOCR-2 "extract text"
+```
+
+## 3) Environment (`.env.local`)
+
+Start from `.env.local.example`.
+
+Recommended for your requested stack:
+
 ```env
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_AWS_ACCESS_KEY_ID=your_aws_access_key
-VITE_AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-VITE_AWS_REGION=us-east-1
+# JSON extraction model
+JSON_PROVIDER=ollama
+USE_OLLAMA=true
+OLLAMA_URL=http://localhost:11434/api/generate
+OLLAMA_MODEL=llama3.2:latest
+
+# OCR model
+OCR_PROVIDER=ollama_lighton
+OCR_OLLAMA_URL=http://localhost:11434/api/generate
+OCR_OLLAMA_MODEL=maternion/LightOnOCR-2
+
+# Local DB
+SQLITE_DB_PATH=backend/data/financetrackr.db
+
+# App server
 FLASK_DEBUG=True
 FLASK_PORT=5000
 ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-3. **Set up database:**
+## 4) Run
 
-Run the SQL schema in Supabase:
+Terminal 1:
+
 ```bash
-# Copy schema from database/schema.sql to Supabase SQL Editor and execute
+python3 backend/main.py
 ```
 
-4. **Start the application:**
-```bash
-# Terminal 1: Start backend
-cd backend
-python main.py
+Terminal 2:
 
-# Terminal 2: Start frontend
+```bash
 npm run dev
 ```
 
-5. **Access the app:**
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:5000
+Frontend: `http://localhost:5173`
 
-## Architecture
+## 5) Provider Toggle Matrix
 
-### Frontend Architecture
+### OCR provider (`OCR_PROVIDER`)
+- `legacy`: existing pdfplumber/PyPDF2 text extraction (old path)
+- `docling`: Docling extractor path
+- `lighton_hf`: Hugging Face local pipeline (`lightonai/LightOnOCR-2-1B`)
+- `ollama_lighton`: Ollama vision OCR (`maternion/LightOnOCR-2`)
 
-**Tech Stack**: React 19, TypeScript, Vite, TailwindCSS
+### JSON provider (`JSON_PROVIDER`)
+- `ollama`: local Ollama text model (`OLLAMA_MODEL`)
+- `openrouter`: OpenRouter path (`OPENROUTER_API_KEY` required)
+- `bedrock`: AWS Bedrock path (`VITE_AWS_ACCESS_KEY_ID`, `VITE_AWS_SECRET_ACCESS_KEY` required)
 
-**Key Concepts**:
-- **Pages**: Top-level route components (Dashboard, Transactions, etc.)
-- **Components**: Reusable UI components (buttons, modals, forms)
-- **Services**: API client layer for Supabase and external APIs
-- **Types**: Centralized TypeScript type definitions
+These are independent, so you can mix old/new paths, e.g.:
+- old OCR + new JSON: `OCR_PROVIDER=legacy`, `JSON_PROVIDER=ollama`
+- new OCR + old JSON: `OCR_PROVIDER=ollama_lighton`, `JSON_PROVIDER=bedrock`
 
-**Data Flow**:
-1. User interacts with UI component
-2. Component calls service layer
-3. Service makes API call (Supabase or backend)
-4. Data flows back and updates UI
+## 6) Local DB Notes
 
-See [frontend/README.md](frontend/README.md) for detailed documentation.
+- Backend endpoint for state: `/api/localdb/state`
+- Data is per logged-in local user id.
+- Login remains local (not Supabase).
 
-### Backend Architecture
+## 7) Troubleshooting
 
-**Tech Stack**: Python 3, Flask, AWS Bedrock, pdfplumber
-
-**Layers**:
-1. **API Layer** (`api/`): Thin controllers, request validation
-2. **Service Layer** (`services/`): Business logic (PDF extraction, AI formatting)
-3. **Utils Layer** (`utils/`): Logging, validation, helpers
-
-**PDF Processing Workflow**:
-1. User uploads PDF via frontend
-2. Backend extracts text using pdfplumber
-3. Text sent to Amazon Nova Pro for intelligent parsing
-4. AI returns structured JSON with transactions
-5. Frontend receives and displays data
-
-See [backend/README.md](backend/README.md) for detailed documentation.
-
-### Database
-
-**Supabase (PostgreSQL)** with Row Level Security (RLS)
-
-**Key Tables**:
-- `profiles` - User profiles
-- `accounts` - Bank accounts
-- `transactions` - Financial transactions
-- `budgets` - Budget limits
-- `custom_categories` - User-defined categories
-- `vehicles` - Vehicle information
-- `fuel_logs` - Fuel tracking
-- `investments` - Investment portfolio
-
-**Features**:
-- Automatic UUID generation
-- Real-time sync across devices
-- Secure row-level access control
-
-### Authentication
-
-**Supabase Auth** handles all authentication:
-- Email/password authentication
-- Session management
-- Password reset
-- JWT token validation
-
-Frontend: `services/supabase/auth.ts`
-Backend: JWT verification (future middleware)
-
-## Development
-
-### Frontend Development
-
-```bash
-npm run dev      # Start dev server
-npm run build    # Build for production
-npm run preview  # Preview production build
-```
-
-### Backend Development
-
-```bash
-cd backend
-python main.py   # Start Flask server
-```
-
-### Code Style
-
-**Frontend**:
-- camelCase for variables/functions
-- PascalCase for components
-- JSDoc comments for exported functions
-- TypeScript strict mode
-
-**Backend**:
-- snake_case for variables/functions
-- Google-style docstrings
-- Type hints where applicable
-- Structured logging
-
-## Key Features
-
-### PDF Import
-
-1. Upload bank statement PDF
-2. Automatic text extraction (supports password-protected PDFs)
-3. AI-powered transaction parsing using Amazon Nova Pro
-4. Account detection and mapping
-5. Review and import transactions
-
-### AI Insights
-
-- Powered by AWS Bedrock (Amazon Nova Pro)
-- Financial advice and analysis
-- Spending pattern detection
-- Budget recommendations
-
-### Date Handling
-
-- **Storage**: `yyyy-MM-dd` (database)
-- **Display**: `dd-MM-yyyy` (UI)
-- Automatic conversion in service layer
-
-## Troubleshooting
-
-### Frontend Issues
-
-**Build errors**: Ensure all dependencies are installed (`npm install`)
-**Import errors**: Check that Vite config points to correct `frontend/` directory
-**Auth errors**: Verify Supabase credentials in `.env.local`
-
-### Backend Issues
-
-**PDF API not starting**: Check Python dependencies (`pip install -r backend/requirements.txt`)
-**AWS errors**: Verify AWS credentials and Bedrock access
-**CORS errors**: Check `ALLOWED_ORIGINS` in `.env.local`
-
-### Database Issues
-
-**Connection errors**: Verify Supabase URL and anon key
-**RLS errors**: Ensure user is authenticated
-**Migration errors**: Check that schema.sql was executed correctly
-
-## Contributing
-
-This project follows clean architecture principles:
-- Thin controllers, logic in services
-- No database logic in routes
-- Comprehensive error handling
-- Extensive inline documentation
-
-See individual README files in `frontend/` and `backend/` for detailed contribution guidelines.
-
-## License
-
-MIT License - feel free to use for personal projects
+- `PROCESSING_FAILED` with `ollama`: confirm Ollama daemon is running and model is pulled.
+- OCR path fails with image errors: install `backend/requirements-ocr.txt`.
+- Bedrock selected but missing keys: set AWS env vars or switch `JSON_PROVIDER=ollama`.
+- To revert to previous extraction behavior quickly:
+  - `OCR_PROVIDER=legacy`
+  - `JSON_PROVIDER=bedrock` (or your previous provider)

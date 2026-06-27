@@ -20,6 +20,7 @@ from flask_cors import CORS
 from api.routes import register_routes
 from config import Config
 from utils.logger import setup_logger
+from db_store import init_db
 
 logger = setup_logger(__name__)
 
@@ -48,6 +49,10 @@ def create_app():
     # Register routes
     register_routes(app)
     logger.info('Routes registered')
+
+    # Initialize local SQLite store
+    init_db()
+    logger.info(f'SQLite initialized at: {Config.SQLITE_DB_PATH}')
     
     return app
 

@@ -18,7 +18,7 @@ export const LoginPage = () => {
             if (isSignUp) {
                 const { error } = await supabase.auth.signUp({ email, password });
                 if (error) throw error;
-                setError('Check your email for the confirmation link!');
+                setError('Account created. You are now signed in.');
             } else {
                 const { error } = await supabase.auth.signInWithPassword({ email, password });
                 if (error) throw error;
