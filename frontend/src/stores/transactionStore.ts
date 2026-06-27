@@ -63,9 +63,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
 
   bulkAddTransactions: async (txs: Transaction[]) => {
     set((s) => ({ transactions: [...txs, ...s.transactions] }));
-    for (const tx of txs) {
-      await addTransactionToDb(tx);
-    }
+    await Promise.all(txs.map((tx) => addTransactionToDb(tx)));
   },
 
   updateTransaction: async (tx: Transaction) => {
