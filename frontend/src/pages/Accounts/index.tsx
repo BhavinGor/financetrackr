@@ -7,15 +7,10 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Plus, Wallet, Edit2, Trash2, CreditCard, Building2, TrendingUp } from 'lucide-react';
+import { useAccountStore } from '../../stores/accountStore';
 
-interface AccountsPageProps {
-    accounts: Account[];
-    onAddAccount: (account: Account) => Promise<Account>;
-    onUpdateAccount: (account: Account) => Promise<void>;
-    onDeleteAccount: (id: string) => Promise<void>;
-}
-
-export const AccountsPage = ({ accounts, onAddAccount, onUpdateAccount, onDeleteAccount }: AccountsPageProps) => {
+export const AccountsPage = () => {
+    const { accounts, addAccount, updateAccount, deleteAccount } = useAccountStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAccount, setEditingAccount] = useState<Partial<Account> | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -26,14 +21,14 @@ export const AccountsPage = ({ accounts, onAddAccount, onUpdateAccount, onDelete
         if (!editingAccount?.name || editingAccount.balance === undefined) return;
 
         if (editingAccount.id) {
-            await onUpdateAccount(editingAccount as Account);
+            await updateAccount(editingAccount as Account);
         } else {
             const newAcc = {
                 ...editingAccount,
                 id: Math.random().toString(36).substr(2, 9),
                 type: editingAccount.type || 'savings'
             } as Account;
-            await onAddAccount(newAcc);
+            await addAccount(newAcc);
         }
         setIsModalOpen(false);
         setEditingAccount(null);
@@ -163,7 +158,7 @@ export const AccountsPage = ({ accounts, onAddAccount, onUpdateAccount, onDelete
                 onClose={() => setDeleteId(null)}
                 onConfirm={() => {
                     if (deleteId) {
-                        onDeleteAccount(deleteId);
+                        deleteAccount(deleteId);
                         setDeleteId(null);
                     }
                 }}

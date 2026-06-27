@@ -7,17 +7,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Modal } from '../../components/ui/Modal';
 import { Car, Fuel, Plus, Search, Loader2, Gauge, Edit2, Trash2, CheckCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useVehicleStore } from '../../stores/vehicleStore';
+import { useTransactionStore } from '../../stores/transactionStore';
+import { useAccountStore } from '../../stores/accountStore';
+import { formatDate } from '../../utils/format';
 
-interface VehiclesPageProps {
-    vehicles: Vehicle[];
-    fuelLogs: FuelLog[];
-    onAddFuelLog: (log: FuelLog) => void;
-    onAddVehicle: (vehicle: Vehicle) => void;
-    onEditVehicle: (vehicle: Vehicle) => void;
-    onDeleteVehicle: (id: string) => void;
-}
-
-export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, onEditVehicle, onDeleteVehicle }: VehiclesPageProps) => {
+export const VehiclesPage = () => {
+    const { vehicles, addVehicle, updateVehicle, deleteVehicle } = useVehicleStore();
+    const { fuelLogs, addFuelLog } = useTransactionStore();
+    const { accounts } = useAccountStore();
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>(vehicles[0]?.id || '');
     const [showLogForm, setShowLogForm] = useState(false);
     const [showAddVehicleForm, setShowAddVehicleForm] = useState(false);
@@ -63,7 +61,7 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
         if (!newVehicleName || !newVehiclePlate || !newVehicleType) return;
 
         if (editingVehicleId) {
-            onEditVehicle({
+            updateVehicle({
                 id: editingVehicleId,
                 make: newVehicleName.split(' ')[0],
                 model: newVehicleName.split(' ')[1] || '',
@@ -84,7 +82,7 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
                 name: newVehicleName,
                 mileage: 0
             };
-            onAddVehicle(newVehicle);
+            addVehicle(newVehicle);
             setSelectedVehicleId(newVehicle.id);
         }
 
@@ -107,14 +105,14 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
         e.preventDefault();
         if (!selectedVehicle) return;
 
-        onAddFuelLog({
+        addFuelLog({
             id: `fl_${Date.now()}`,
             vehicleId: selectedVehicle.id,
             date,
             liters: parseFloat(liters),
             cost: parseFloat(cost),
             mileage: parseFloat(mileage)
-        });
+        }, accounts[0]?.id || '');
         setShowLogForm(false);
         setLiters('');
         setCost('');
@@ -133,16 +131,6 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
         cost: log.cost,
         efficiency: log.mileage
     }));
-
-    // Format date for display (yyyy-mm-dd -> dd-mm-yyyy)
-    const formatDate = (dateStr: string) => {
-        if (!dateStr) return '';
-        const parts = dateStr.split('-');
-        if (parts.length === 3) {
-            return `${parts[2]}-${parts[1]}-${parts[0]}`;
-        }
-        return dateStr;
-    };
 
     return (
         <div className="space-y-6 animate-in fade-in pb-10">
@@ -342,7 +330,7 @@ export const VehiclesPage = ({ vehicles, fuelLogs, onAddFuelLog, onAddVehicle, o
                 onClose={() => setDeleteId(null)}
                 onConfirm={() => {
                     if (deleteId) {
-                        onDeleteVehicle(deleteId);
+                        deleteVehicle(deleteId);
                         setDeleteId(null);
                     }
                 }}

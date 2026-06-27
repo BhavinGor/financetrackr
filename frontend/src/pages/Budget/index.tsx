@@ -6,13 +6,10 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Plus, PiggyBank, PenLine, Trash2 } from 'lucide-react';
+import { useBudgetStore } from '../../stores/budgetStore';
 
-interface BudgetPageProps {
-    budgets: Budget[];
-    onSaveBudgets: (budgets: Budget[]) => Promise<void>;
-}
-
-export const BudgetPage = ({ budgets, onSaveBudgets }: BudgetPageProps) => {
+export const BudgetPage = () => {
+    const { budgets, saveBudgets } = useBudgetStore();
     const [localBudgets, setLocalBudgets] = useState<Budget[]>(budgets);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingBudget, setEditingBudget] = useState<Partial<Budget> | null>(null);
@@ -33,7 +30,7 @@ export const BudgetPage = ({ budgets, onSaveBudgets }: BudgetPageProps) => {
         }
 
         setLocalBudgets(newBudgets);
-        await onSaveBudgets(newBudgets);
+        await saveBudgets(newBudgets);
         setIsModalOpen(false);
     };
 

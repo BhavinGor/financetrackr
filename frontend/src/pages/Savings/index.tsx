@@ -8,18 +8,14 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Modal } from '../../components/ui/Modal';
 import { Plus, TrendingUp, TrendingDown, DollarSign, Target, Edit2, Trash2 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-
-interface SavingsPageProps {
-    investments: Investment[];
-    budgets: Budget[];
-    onAddInvestment: (inv: Investment) => void;
-    onEditInvestment: (inv: Investment) => void;
-    onDeleteInvestment: (id: string) => void;
-}
+import { useTransactionStore } from '../../stores/transactionStore';
+import { useBudgetStore } from '../../stores/budgetStore';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
-export const SavingsPage = ({ investments, budgets, onAddInvestment, onEditInvestment, onDeleteInvestment }: SavingsPageProps) => {
+export const SavingsPage = () => {
+    const { investments, updateTransaction, deleteTransaction } = useTransactionStore();
+    const { budgets } = useBudgetStore();
     const [showAddForm, setShowAddForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -45,9 +41,24 @@ export const SavingsPage = ({ investments, budgets, onAddInvestment, onEditInves
         };
 
         if (editingId) {
-            onEditInvestment(invData);
+            // Update existing investment transaction
+            updateTransaction({
+                id: invData.id,
+                date: invData.date,
+                amount: invData.investedAmount,
+                type: 'Expense' as any,
+                category: 'Investment',
+                description: `Investment in ${invData.name}`,
+                accountId: '',
+                metadata: {
+                    investmentType: invData.type,
+                    assetName: invData.name,
+                    quantity: invData.quantity,
+                    pricePerUnit: invData.quantity ? invData.investedAmount / invData.quantity : undefined,
+                },
+            });
         } else {
-            onAddInvestment(invData);
+            useTransactionStore.getState().addInvestment(invData, '');
         }
         resetForm();
     };
@@ -253,7 +264,7 @@ export const SavingsPage = ({ investments, budgets, onAddInvestment, onEditInves
                 onClose={() => setDeleteId(null)}
                 onConfirm={() => {
                     if (deleteId) {
-                        onDeleteInvestment(deleteId);
+                        deleteTransaction(deleteId);
                         setDeleteId(null);
                     }
                 }}
