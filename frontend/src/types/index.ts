@@ -49,8 +49,9 @@ export interface Transaction {
   category: Category | string;
   description: string;
   accountId: string;
-  source?: 'manual' | 'gmail' | 'csv'; // Track origin
+  source?: 'manual' | 'gmail' | 'csv';
   notes?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface Vehicle {
