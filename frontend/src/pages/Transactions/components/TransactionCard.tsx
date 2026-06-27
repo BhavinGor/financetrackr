@@ -60,8 +60,6 @@ export const TransactionCard = ({
 
     // Reset when transaction prop changes
     useEffect(() => {
-        console.log('TransactionCard received transaction:', transaction);
-        console.log('Transaction metadata:', (transaction as any).metadata);
         setEditedTransaction(transaction);
         setIsDirty(false);
     }, [transaction]);
@@ -84,7 +82,7 @@ export const TransactionCard = ({
 
         // Conditional validation for Fuel
         if (editedTransaction.category === 'Fuel') {
-            const metadata = (editedTransaction as any).metadata;
+            const metadata = editedTransaction.metadata;
             if (!metadata?.vehicleId) {
                 errors.vehicleId = 'Vehicle is required for fuel expenses';
             }
@@ -92,7 +90,7 @@ export const TransactionCard = ({
 
         // Conditional validation for Investment/Savings
         if (editedTransaction.category === 'Investment' || editedTransaction.category === 'Savings') {
-            const metadata = (editedTransaction as any).metadata;
+            const metadata = editedTransaction.metadata;
             if (!metadata?.investmentId) {
                 errors.investmentId = 'Investment selection is required';
             }
@@ -111,8 +109,8 @@ export const TransactionCard = ({
     const handleMetadataChange = (key: string, value: any) => {
         setEditedTransaction(prev => ({
             ...prev,
-            metadata: { ...(prev as any).metadata, [key]: value }
-        } as any));
+            metadata: { ...(prev.metadata || {}), [key]: value }
+        }));
         setIsDirty(true);
     };
 
@@ -400,7 +398,7 @@ export const TransactionCard = ({
                                             Vehicle *
                                         </label>
                                         <select
-                                            value={(editedTransaction as any).metadata?.vehicleId || ''}
+                                            value={editedTransaction.metadata?.vehicleId || ''}
                                             onChange={(e) => handleMetadataChange('vehicleId', e.target.value)}
                                             className={`w-full px-3 py-2 border rounded-lg text-sm ${validationErrors.vehicleId ? 'border-red-300' : 'border-slate-300'
                                                 } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
@@ -422,7 +420,7 @@ export const TransactionCard = ({
                                             </label>
                                             <input
                                                 type="number"
-                                                value={(editedTransaction as any).metadata?.liters || ''}
+                                                value={editedTransaction.metadata?.liters || ''}
                                                 onChange={(e) => handleMetadataChange('liters', e.target.value)}
                                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 step="0.1"
@@ -436,7 +434,7 @@ export const TransactionCard = ({
                                             </label>
                                             <input
                                                 type="number"
-                                                value={(editedTransaction as any).metadata?.odometer || ''}
+                                                value={editedTransaction.metadata?.odometer || ''}
                                                 onChange={(e) => handleMetadataChange('odometer', e.target.value)}
                                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 placeholder="Optional"
@@ -449,7 +447,7 @@ export const TransactionCard = ({
 
                         {/* Show investment section if category is Investment/Savings OR if metadata has investmentId */}
                         {((editedTransaction.category === 'Investment' || editedTransaction.category === 'Savings') ||
-                            (editedTransaction as any).metadata?.investmentId) && (
+                            editedTransaction.metadata?.investmentId) && (
                                 <div className="mt-6 p-4 bg-slate-50 rounded-lg">
                                     <h4 className="text-sm font-semibold text-slate-900 mb-4">Investment Assignment</h4>
                                     <div>
@@ -457,7 +455,7 @@ export const TransactionCard = ({
                                             Investment/Goal *
                                         </label>
                                         <select
-                                            value={(editedTransaction as any).metadata?.investmentId || ''}
+                                            value={editedTransaction.metadata?.investmentId || ''}
                                             onChange={(e) => handleMetadataChange('investmentId', e.target.value)}
                                             className={`w-full px-3 py-2 border rounded-lg text-sm ${validationErrors.investmentId ? 'border-red-300' : 'border-slate-300'
                                                 } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}

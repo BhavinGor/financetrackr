@@ -18,6 +18,8 @@ interface TransactionImportPanelProps {
     onCancel: () => void;
     accountInfo?: any;
     onAddAccount?: (account: any) => Promise<any>;
+    onAddVehicle?: (vehicle: Vehicle) => void;
+    onAddInvestment?: (investment: Investment) => void;
 }
 
 export const TransactionImportPanel = (props: TransactionImportPanelProps) => {

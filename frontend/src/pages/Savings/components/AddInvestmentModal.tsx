@@ -3,7 +3,7 @@ import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import { Investment } from '../../../types/index';
+import { Investment, InvestmentType } from '../../../types/index';
 
 interface AddInvestmentModalProps {
     isOpen: boolean;
@@ -13,7 +13,7 @@ interface AddInvestmentModalProps {
 
 export const AddInvestmentModal = ({ isOpen, onClose, onSave }: AddInvestmentModalProps) => {
     const [name, setName] = useState('');
-    const [type, setType] = useState('Mutual Fund');
+    const [type, setType] = useState<InvestmentType>(InvestmentType.MUTUAL_FUND_IN);
     const [targetAmount, setTargetAmount] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -24,11 +24,11 @@ export const AddInvestmentModal = ({ isOpen, onClose, onSave }: AddInvestmentMod
             await onSave({
                 id: crypto.randomUUID(),
                 name,
-                type: type as any,
+                type,
                 investedAmount: 0,
                 currentValue: 0,
                 date: new Date().toISOString(),
-                quantity: targetAmount ? parseFloat(targetAmount) : undefined // Map target to quantity or just ignore if not in schema, but for now let's treat it as possibly quantity or metadata
+                quantity: targetAmount ? parseFloat(targetAmount) : undefined
             });
             onClose();
             setName('');
@@ -52,7 +52,7 @@ export const AddInvestmentModal = ({ isOpen, onClose, onSave }: AddInvestmentMod
                 <Select
                     label="Type"
                     value={type}
-                    onChange={(e) => setType(e.target.value)}
+                    onChange={(e) => setType(e.target.value as InvestmentType)}
                 >
                     <option value="Mutual Fund">Mutual Fund</option>
                     <option value="Stock">Stock</option>
