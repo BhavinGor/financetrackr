@@ -2,12 +2,23 @@ import { Transaction } from "../../types";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+const getUserId = (): string => {
+  try {
+    const raw = localStorage.getItem('financetrackr_local_auth_session');
+    if (raw) {
+      const session = JSON.parse(raw);
+      return session?.user?.id || '';
+    }
+  } catch {}
+  return '';
+};
+
 export const getFinancialInsights = async (transactions: Transaction[], balance: number): Promise<string> => {
     try {
         const response = await fetch(`${API_BASE}/api/ai/insights`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transactions, balance, provider: 'gemini' }),
+            body: JSON.stringify({ transactions, balance, provider: 'gemini', user_id: getUserId() }),
         });
 
         if (!response.ok) {

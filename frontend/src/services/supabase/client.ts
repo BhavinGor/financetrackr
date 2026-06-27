@@ -6,7 +6,7 @@
 type LocalUser = {
   id: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   user_metadata?: { full_name?: string };
 };
 
@@ -21,6 +21,7 @@ type AuthListener = (event: string, session: LocalSession | null) => void;
 import { generateId } from '../../utils/id';
 
 const USERS_KEY = 'financetrackr_local_auth_users';
+const PASSWORDS_KEY = 'financetrackr_local_auth_passwords';
 const SESSION_KEY = 'financetrackr_local_auth_session';
 
 const listeners = new Set<AuthListener>();
@@ -43,7 +44,21 @@ const readUsers = (): LocalUser[] => {
 };
 
 const writeUsers = (users: LocalUser[]) => {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  const stripped = users.map(({ passwordHash, ...u }) => u);
+  localStorage.setItem(USERS_KEY, JSON.stringify(stripped));
+};
+
+const readPasswords = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(PASSWORDS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const writePasswords = (passwords: Record<string, string>) => {
+  localStorage.setItem(PASSWORDS_KEY, JSON.stringify(passwords));
 };
 
 const stripPassword = (user: LocalUser) => {
@@ -116,6 +131,10 @@ const auth = {
     users.push(user);
     writeUsers(users);
 
+    const passwords = readPasswords();
+    passwords[normalizedEmail] = passwordHash;
+    writePasswords(passwords);
+
     const session = buildSession(user);
     writeSession(session);
     notify('SIGNED_IN', session);
@@ -126,8 +145,9 @@ const auth = {
   async signInWithPassword({ email, password }: { email: string; password: string }) {
     const normalizedEmail = email.trim().toLowerCase();
     const passwordHash = await hashPassword(password);
+    const passwords = readPasswords();
     const users = readUsers();
-    const user = users.find((u) => u.email.toLowerCase() === normalizedEmail && u.passwordHash === passwordHash);
+    const user = users.find((u) => u.email.toLowerCase() === normalizedEmail && passwords[normalizedEmail] === passwordHash);
 
     if (!user) {
       return { data: { user: null, session: null }, error: { message: 'Invalid email or password.' } };
@@ -172,9 +192,11 @@ const auth = {
     }
 
     const current = users[idx];
+    const normalizedEmail = current.email.trim().toLowerCase();
+    const newPasswordHash = updates.password ? await hashPassword(updates.password) : undefined;
     users[idx] = {
       ...current,
-      passwordHash: updates.password ? await hashPassword(updates.password) : current.passwordHash,
+      passwordHash: newPasswordHash || current.passwordHash,
       user_metadata: {
         ...current.user_metadata,
         ...(updates.data || {}),
@@ -182,6 +204,12 @@ const auth = {
     };
 
     writeUsers(users);
+
+    if (newPasswordHash) {
+      const passwords = readPasswords();
+      passwords[normalizedEmail] = newPasswordHash;
+      writePasswords(passwords);
+    }
 
     const nextSession: LocalSession = {
       ...session,

@@ -2,12 +2,23 @@ import { Transaction } from "../../types";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+const getUserId = (): string => {
+  try {
+    const raw = localStorage.getItem('financetrackr_local_auth_session');
+    if (raw) {
+      const session = JSON.parse(raw);
+      return session?.user?.id || '';
+    }
+  } catch {}
+  return '';
+};
+
 export const getFinancialInsights = async (transactions: Transaction[], balance: number): Promise<string> => {
     try {
         const response = await fetch(`${API_BASE}/api/ai/insights`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transactions, balance, provider: 'bedrock' }),
+            body: JSON.stringify({ transactions, balance, provider: 'bedrock', user_id: getUserId() }),
         });
 
         if (!response.ok) {
@@ -28,7 +39,7 @@ export const parseTransactionFromEmail = async (emailContent: string): Promise<P
         const response = await fetch(`${API_BASE}/api/ai/extract`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pdf_text: emailContent, provider: 'bedrock' }),
+            body: JSON.stringify({ pdf_text: emailContent, provider: 'bedrock', user_id: getUserId() }),
         });
 
         if (!response.ok) return null;
@@ -49,7 +60,7 @@ export const extractTransactionsFromPdf = async (pdfText: string): Promise<any> 
     const response = await fetch(`${API_BASE}/api/ai/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdf_text: pdfText, provider: 'bedrock' }),
+        body: JSON.stringify({ pdf_text: pdfText, provider: 'bedrock', user_id: getUserId() }),
     });
 
     if (!response.ok) {

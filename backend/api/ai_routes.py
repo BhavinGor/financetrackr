@@ -21,12 +21,16 @@ def get_insights():
     Proxy for financial insights generation.
     
     Request body:
-        { "transactions": [...], "balance": number, "provider": "bedrock"|"gemini" }
+        { "transactions": [...], "balance": number, "provider": "bedrock"|"gemini", "user_id": string }
     """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'Request body required'}), 400
+
+        user_id = data.get('user_id', '').strip()
+        if not user_id:
+            return jsonify({'error': 'Authentication required'}), 401
 
         transactions = data.get('transactions', [])
         balance = data.get('balance', 0)
@@ -67,12 +71,16 @@ def extract_transactions():
     Proxy for PDF transaction extraction.
     
     Request body:
-        { "pdf_text": string, "provider": "bedrock"|"gemini" }
+        { "pdf_text": string, "provider": "bedrock"|"gemini", "user_id": string }
     """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'Request body required'}), 400
+
+        user_id = data.get('user_id', '').strip()
+        if not user_id:
+            return jsonify({'error': 'Authentication required'}), 401
 
         pdf_text = data.get('pdf_text', '')
         provider = data.get('provider', 'bedrock')
