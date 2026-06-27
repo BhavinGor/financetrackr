@@ -1,856 +1,334 @@
-/**
- * Database Operations Service
- * 
- * Provides CRUD operations for all database entities using Supabase.
- * This service layer handles:
- * - Data transformation between frontend (camelCase) and database (snake_case)
- * - User authentication checks
- * - Database queries and mutations
- * - Error handling
- * 
- * Architecture:
- * - All functions are async and return Promises
- * - User authentication is checked for all operations
- * - Database-generated UUIDs are returned for create operations
- * - Errors are thrown and should be handled by the calling code
- * 
- * Database Tables:
- * - transactions: Financial transactions
- * - accounts: Bank accounts and wallets
- * - budgets: Budget limits by category
- * - vehicles: Vehicle information
- * - fuel_logs: Fuel consumption logs
- * - investments: Investment portfolio
- * - custom_categories: User-defined transaction categories
- */
 import { supabase } from './client';
-import { Account, Transaction, Vehicle, FuelLog, Budget, Investment } from '../../types';
+import { Account, Budget, FuelLog, Investment, Transaction, TransactionType, Vehicle } from '../../types';
+import { generateId } from '../../utils/id';
 
-/**
- * Helper Functions for Case Conversion
- * 
- * The database uses snake_case (e.g., user_id, account_id)
- * The frontend uses camelCase (e.g., userId, accountId)
- * These functions handle automatic conversion between the two.
- */
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-/**
- * Convert camelCase string to snake_case
- * Example: "userId" -> "user_id"
- */
-const toSnakeCase = (str: string): string => {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+const getCurrentUserId = async (): Promise<string> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('No authenticated user');
+  }
+  return user.id;
 };
 
-/**
- * Recursively convert all object keys from camelCase to snake_case
- * Handles nested objects and arrays
- */
-const keysToSnakeCase = (obj: any): any => {
-    if (Array.isArray(obj)) {
-        return obj.map(keysToSnakeCase);
-    }
-    if (obj !== null && typeof obj === 'object') {
-        return Object.keys(obj).reduce((acc, key) => {
-            acc[toSnakeCase(key)] = keysToSnakeCase(obj[key]);
-            return acc;
-        }, {} as any);
-    }
-    return obj;
+const api = async (path: string, options: RequestInit = {}): Promise<any> => {
+  const response = await fetch(`${API_BASE}/api/localdb${path}`, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Request failed');
+  }
+  return response.json();
 };
 
-/**
- * Recursively convert all object keys from snake_case to camelCase
- * Handles nested objects and arrays
- */
-const keysToCamelCase = (obj: any): any => {
-    if (Array.isArray(obj)) {
-        return obj.map(keysToCamelCase);
-    }
-    if (obj !== null && typeof obj === 'object') {
-        return Object.keys(obj).reduce((acc, key) => {
-            const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-            acc[camelKey] = keysToCamelCase(obj[key]);
-            return acc;
-        }, {} as any);
-    }
-    return obj;
+// ─── Transactions ─────────────────────────────────────────────────
+
+export const fetchTransactions = async (): Promise<Transaction[]> => {
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/transactions?user_id=${encodeURIComponent(userId)}`);
+  return (data || []).sort((a: Transaction, b: Transaction) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
 };
 
-// ============================================================================
-// TRANSACTION OPERATIONS
-// ============================================================================
-
-/**
- * Fetch all transactions for the current user
- * Includes metadata from fuel_transactions and investment_transactions
- * @returns Array of transactions with populated metadata, sorted by date (newest first)
- */
-
-export const fetchTransactions = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('transactions')
-        .select(`
-            *,
-            fuel_transactions(*),
-            investment_transactions(*)
-        `)
-        .eq('user_id', user.id)
-        .order('date', { ascending: false });
-
-    if (error) throw error;
-
-    console.log('Fetched transactions from DB, sample:', data?.[0]);
-
-    // Transform data to include metadata from extensions
-    const transactions = (data || []).map(tx => {
-        let metadata: any = null;
-
-        // Check for fuel extension - it's an object, not an array
-        if (tx.fuel_transactions && typeof tx.fuel_transactions === 'object') {
-            const fuelData = tx.fuel_transactions;
-            metadata = {
-                vehicleId: fuelData.vehicle_id,
-                liters: fuelData.liters,
-                odometer: fuelData.mileage, // Map mileage to odometer for UI
-                mileage: fuelData.mileage
-            };
-            console.log('Created fuel metadata:', metadata);
-        }
-
-        // Check for investment extension - it's an object, not an array
-        if (tx.investment_transactions && typeof tx.investment_transactions === 'object') {
-            const invData = tx.investment_transactions;
-            console.log('Processing investment transaction:', {
-                tx_id: tx.id,
-                tx_category: tx.category,
-                tx_description: tx.description,
-                invData: invData
-            });
-            // Use the transaction's own ID as the investmentId
-            // since investment_transactions uses transaction_id as the reference
-            metadata = {
-                investmentId: tx.id, // Use transaction ID to link back
-                investmentType: invData.investment_type,
-                assetName: invData.asset_name,
-                quantity: invData.quantity,
-                pricePerUnit: invData.price_per_unit,
-                units: invData.quantity, // Alias for compatibility
-                price: invData.price_per_unit // Alias for compatibility
-            };
-            console.log('Created investment metadata:', metadata);
-        }
-
-        // Convert to camelCase AFTER extracting metadata
-        const baseTx = keysToCamelCase(tx);
-
-        // Remove the joined tables from the transaction object
-        const { fuelTransactions, investmentTransactions, ...cleanTx } = baseTx;
-
-        const result = {
-            ...cleanTx,
-            ...(metadata && { metadata })
-        };
-
-        if (metadata) {
-            console.log('Final transaction with metadata:', result.id, result);
-        }
-
-        return result;
-    });
-
-    return transactions as Transaction[];
-};
-
-/**
- * Add a new transaction to the database
- * @param transaction - Transaction object (id will be ignored, database generates UUID)
- * @returns Database-generated UUID for the new transaction
- * @throws Error if user is not authenticated or accountId is missing
- */
 export const addTransactionToDb = async (transaction: Transaction): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Validate account ID
-    if (!transaction.accountId) {
-        throw new Error('Account ID is required');
-    }
-
-    // Remove id, accountName, and metadata - metadata is not in schema
-    const { id, accountName, metadata, ...transactionData } = transaction as any;
-
-    const { data, error } = await supabase
-        .from('transactions')
-        .insert(keysToSnakeCase({ ...transactionData, user_id: user.id }))
-        .select()
-        .single();
-
-    if (error) throw error;
-
-    // Return the database-generated UUID
-    return data.id;
+  const userId = await getCurrentUserId();
+  const id = transaction.id?.startsWith('tx_') ? transaction.id : generateId('tx');
+  const { id: savedId } = await api('/transactions', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, transaction: { ...transaction, id } }),
+  });
+  return savedId || id;
 };
 
-/**
- * Update an existing transaction
- * @param transaction - Transaction object with updated values
- * @throws Error if update fails
- */
 export const updateTransactionInDb = async (transaction: Transaction) => {
-    // metadata is not in schema
-    const { metadata, ...rest } = transaction as any;
-    const { error } = await supabase
-        .from('transactions')
-        .update(keysToSnakeCase(rest))
-        .eq('id', transaction.id);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/transactions/${transaction.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ user_id: userId, transaction }),
+  });
 };
 
-/**
- * Delete a transaction from the database
- * @param id - Transaction UUID
- * @throws Error if deletion fails
- */
 export const deleteTransactionFromDb = async (id: string) => {
-    const { error } = await supabase
-        .from('transactions')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/transactions/${id}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 };
 
-// ============================================================================
-// TRANSACTION EXTENSIONS (New system for fuel and investments)
-// ============================================================================
-
-/**
- * Add a transaction with optional fuel or investment extensions
- * @param transaction - Base transaction data
- * @param fuelData - Optional fuel metadata (vehicleId, liters, mileage)
- * @param investmentData - Optional investment metadata (type, assetName, quantity, pricePerUnit)
- * @returns Database-generated transaction UUID
- */
 export const addTransactionWithExtensions = async (
-    transaction: Transaction,
-    fuelData?: { vehicleId: string; liters: number; mileage?: number },
-    investmentData?: { investmentType: string; assetName: string; quantity?: number; pricePerUnit?: number }
+  transaction: Transaction,
+  fuelData?: { vehicleId: string; liters: number; mileage?: number },
+  investmentData?: { investmentType: string; assetName: string; quantity?: number; pricePerUnit?: number }
 ): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Validate mutual exclusivity
-    if (fuelData && investmentData) {
-        throw new Error('Transaction cannot be both fuel and investment');
-    }
-
-    // Validate fuel requirements
-    if (fuelData && !fuelData.vehicleId) {
-        throw new Error('Fuel transactions require a vehicle');
-    }
-
-    // Validate investment requirements
-    if (investmentData && !investmentData.assetName) {
-        throw new Error('Investment transactions require asset name');
-    }
-
-    // Set flags based on extensions
-    const txData = {
-        ...transaction,
-        is_fuel: !!fuelData,
-        is_investment: !!investmentData
-    };
-
-    // Remove unwanted fields
-    const { id, ...baseData } = txData as any;
-
-    // Insert transaction
-    const { data: txRecord, error: txError } = await supabase
-        .from('transactions')
-        .insert(keysToSnakeCase({ ...baseData, user_id: user.id }))
-        .select()
-        .single();
-
-    if (txError) throw txError;
-
-    try {
-        // Insert fuel extension if needed
-        if (fuelData) {
-            const { error: fuelError } = await supabase
-                .from('fuel_transactions')
-                .insert(keysToSnakeCase({
-                    transaction_id: txRecord.id,
-                    user_id: user.id,
-                    ...fuelData
-                }));
-
-            if (fuelError) {
-                // Rollback transaction
-                await supabase.from('transactions').delete().eq('id', txRecord.id);
-                throw fuelError;
-            }
-        }
-
-        // Insert investment extension if needed
-        if (investmentData) {
-            const { error: invError } = await supabase
-                .from('investment_transactions')
-                .insert(keysToSnakeCase({
-                    transaction_id: txRecord.id,
-                    user_id: user.id,
-                    ...investmentData
-                }));
-
-            if (invError) {
-                // Rollback transaction
-                await supabase.from('transactions').delete().eq('id', txRecord.id);
-                throw invError;
-            }
-        }
-
-        return txRecord.id;
-    } catch (error) {
-        // Ensure transaction is cleaned up on any error
-        await supabase.from('transactions').delete().eq('id', txRecord.id);
-        throw error;
-    }
+  const userId = await getCurrentUserId();
+  const id = transaction.id?.startsWith('tx_') ? transaction.id : generateId('tx');
+  const { id: savedId } = await api('/transactions', {
+    method: 'POST',
+    body: JSON.stringify({
+      user_id: userId,
+      transaction: { ...transaction, id },
+      fuelData,
+      investmentData,
+    }),
+  });
+  return savedId || id;
 };
 
-/**
- * Fetch fuel transactions for a specific vehicle
- * @param vehicleId - Vehicle UUID
- * @returns Array of fuel transaction data with joined transaction info
- */
+export const updateTransactionWithExtensions = async (transaction: Transaction): Promise<void> => {
+  const userId = await getCurrentUserId();
+  await api(`/transactions/${transaction.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ user_id: userId, transaction }),
+  });
+};
+
+// ─── Fuel Transactions ────────────────────────────────────────────
+
+export const fetchAllFuelTransactions = async (): Promise<FuelLog[]> => {
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/fuel?user_id=${encodeURIComponent(userId)}`);
+  return (data || []).map((f: any) => ({
+    id: f.transaction_id,
+    vehicleId: f.vehicle_id,
+    date: f.date,
+    liters: f.liters,
+    cost: f.amount,
+    mileage: f.mileage || 0,
+  }));
+};
+
 export const fetchFuelTransactionsForVehicle = async (vehicleId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('fuel_transactions')
-        .select(`
-            *,
-            transaction:transactions(*)
-        `)
-        .eq('vehicle_id', vehicleId)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    // Transform the data to flatten transaction info
-    return (data || []).map(item => ({
-        ...keysToCamelCase(item),
-        transaction: keysToCamelCase(item.transaction)
-    }));
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/fuel?user_id=${encodeURIComponent(userId)}&vehicle_id=${encodeURIComponent(vehicleId)}`);
+  return data || [];
 };
 
-/**
- * Fetch all fuel transactions for all vehicles
- * Returns data needed for Vehicles tab
- */
-export const fetchAllFuelTransactions = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
+// ─── Investment Transactions ──────────────────────────────────────
 
-    const { data, error } = await supabase
-        .from('fuel_transactions')
-        .select(`
-            *,
-            transaction:transactions(*)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    return (data || []).map(item => ({
-        id: item.id,
-        transactionId: item.transaction_id,
-        vehicleId: item.vehicle_id,
-        liters: item.liters,
-        mileage: item.mileage,
-        // From joined transaction
-        date: item.transaction.date,
-        cost: item.transaction.amount,
-        createdAt: item.created_at
-    }));
+export const fetchAllInvestmentTransactions = async (): Promise<Investment[]> => {
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/investments?user_id=${encodeURIComponent(userId)}`);
+  return (data || []).map((inv: any) => ({
+    id: inv.transaction_id,
+    name: inv.asset_name,
+    type: inv.investment_type,
+    investedAmount: inv.amount,
+    currentValue: inv.amount,
+    quantity: inv.quantity,
+    date: inv.date,
+  }));
 };
 
-/**
- * Fetch all investment transactions
- * Returns data needed for Savings tab
- */
-export const fetchAllInvestmentTransactions = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
+// ─── Accounts ─────────────────────────────────────────────────────
 
-    const { data, error } = await supabase
-        .from('investment_transactions')
-        .select(`
-            *,
-            transaction:transactions(*)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    // Map to Investment interface format expected by SavingsPage
-    return (data || []).map(item => ({
-        id: item.transaction_id, // Use transaction_id as the unique identifier
-        name: item.asset_name,
-        type: item.investment_type,
-        investedAmount: item.transaction.amount,
-        currentValue: item.transaction.amount, // TODO: Track current value separately
-        quantity: item.quantity,
-        date: item.transaction.date
-    }));
+export const fetchAccounts = async (): Promise<Account[]> => {
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/accounts?user_id=${encodeURIComponent(userId)}`);
+  return (data || []).map((a: any) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type,
+    bankName: a.bank_name,
+    balance: a.balance,
+    currency: a.currency,
+    limit: a.limit_amount,
+    dueDate: a.due_date,
+  }));
 };
 
-/**
- * Update a transaction with optional fuel or investment extensions
- * - Updates the base transaction
- * - Creates/updates/deletes fuel_transactions based on metadata
- * - Creates/updates/deletes investment_transactions based on metadata
- */
-export const updateTransactionWithExtensions = async (
-    transaction: Transaction & { metadata?: any }
-): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Extract metadata
-    const { metadata, ...txData } = transaction;
-
-    // Determine if this is fuel or investment based on category and metadata
-    const isFuel = transaction.category === 'Fuel' && metadata?.vehicleId;
-    const isInvestment = (transaction.category === 'Investment' || transaction.category === 'Savings') && metadata?.investmentId;
-
-    // Update base transaction with flags
-    const updateData = {
-        ...txData,
-        is_fuel: isFuel,
-        is_investment: isInvestment
-    };
-
-    const { id, ...dataToUpdate } = updateData as any;
-
-    const { error: txError } = await supabase
-        .from('transactions')
-        .update(keysToSnakeCase(dataToUpdate))
-        .eq('id', id);
-
-    if (txError) throw txError;
-
-    // Handle fuel extension
-    if (isFuel && metadata) {
-        // Check if fuel_transaction exists
-        const { data: existing } = await supabase
-            .from('fuel_transactions')
-            .select('id')
-            .eq('transaction_id', id)
-            .single();
-
-        const fuelData = {
-            transaction_id: id,
-            user_id: user.id,
-            vehicle_id: metadata.vehicleId,
-            liters: metadata.liters || 0,
-            mileage: metadata.odometer || metadata.mileage || 0
-        };
-
-        if (existing) {
-            // Update existing
-            await supabase
-                .from('fuel_transactions')
-                .update(fuelData)
-                .eq('transaction_id', id);
-        } else {
-            // Insert new
-            await supabase
-                .from('fuel_transactions')
-                .insert(fuelData);
-        }
-    } else {
-        // Remove fuel extension if exists but no longer fuel
-        await supabase
-            .from('fuel_transactions')
-            .delete()
-            .eq('transaction_id', id);
-    }
-
-    // Handle investment extension
-    if (isInvestment && metadata) {
-        // Check if investment_transaction exists
-        const { data: existing } = await supabase
-            .from('investment_transactions')
-            .select('id')
-            .eq('transaction_id', id)
-            .single();
-
-        const invData = {
-            transaction_id: id,
-            user_id: user.id,
-            investment_type: metadata.investmentType || 'Other',
-            asset_name: metadata.assetName || 'Investment',
-            quantity: metadata.quantity || metadata.units || 0,
-            price_per_unit: metadata.pricePerUnit || metadata.price || 0
-        };
-
-        if (existing) {
-            // Update existing
-            await supabase
-                .from('investment_transactions')
-                .update(invData)
-                .eq('transaction_id', id);
-        } else {
-            // Insert new
-            await supabase
-                .from('investment_transactions')
-                .insert(invData);
-        }
-    } else {
-        // Remove investment extension if exists but no longer investment
-        await supabase
-            .from('investment_transactions')
-            .delete()
-            .eq('transaction_id', id);
-    }
-};
-
-
-// ============================================================================
-// ACCOUNT OPERATIONS
-// ============================================================================
-
-/**
- * Fetch all accounts for the current user
- * @returns Array of accounts, sorted by name
- */
-export const fetchAccounts = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('name', { ascending: true });
-
-    if (error) throw error;
-    return keysToCamelCase(data) as Account[];
-};
-
-/**
- * Add a new account to the database
- * @param account - Account object (id will be ignored, database generates UUID)
- * @returns Database-generated UUID for the new account
- * @throws Error if user is not authenticated
- */
 export const addAccountToDb = async (account: Account): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Remove id - let database generate UUID
-    const { id, ...accountData } = account;
-
-    const { data, error } = await supabase
-        .from('accounts')
-        .insert(keysToSnakeCase({ ...accountData, user_id: user.id }))
-        .select()
-        .single();
-
-    if (error) throw error;
-
-    // Return the database-generated UUID
-    return data.id;
+  const userId = await getCurrentUserId();
+  const id = account.id?.startsWith('acc_') ? account.id : generateId('acc');
+  const { id: savedId } = await api('/accounts', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, account: { ...account, id } }),
+  });
+  return savedId || id;
 };
 
-/**
- * Update an existing account
- * @param account - Account object with updated values
- * @throws Error if update fails
- */
 export const updateAccountInDb = async (account: Account) => {
-    const { error } = await supabase
-        .from('accounts')
-        .update(keysToSnakeCase(account))
-        .eq('id', account.id);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/accounts/${account.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ user_id: userId, account }),
+  });
 };
 
-/**
- * Delete an account from the database
- * @param id - Account UUID
- * @throws Error if deletion fails
- */
 export const deleteAccountFromDb = async (id: string) => {
-    const { error } = await supabase
-        .from('accounts')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/accounts/${id}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 };
 
-// ============================================================================
-// BUDGET OPERATIONS
-// ============================================================================
+// ─── Budgets ──────────────────────────────────────────────────────
 
-/**
- * Fetch all budgets for the current user
- * @returns Array of budgets
- */
-export const fetchBudgets = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('budgets')
-        .select('*')
-        .eq('user_id', user.id);
-
-    if (error) throw error;
-    return keysToCamelCase(data) as Budget[];
+export const fetchBudgets = async (): Promise<Budget[]> => {
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/budgets?user_id=${encodeURIComponent(userId)}`);
+  return (data || []).map((b: any) => ({
+    id: b.id,
+    category: b.category,
+    limit: b.limit_amount,
+    spent: 0,
+    period: b.period,
+  }));
 };
 
-/**
- * Save budgets to the database (replaces all existing budgets)
- * This is a full replace operation - all existing budgets are deleted first
- * @param budgets - Array of budget objects
- * @throws Error if user is not authenticated or save fails
- */
 export const saveBudgetsToDb = async (budgets: Budget[]) => {
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Delete all existing budgets for this user
-    const { error: deleteError } = await supabase
-        .from('budgets')
-        .delete()
-        .eq('user_id', user.id);
-
-    if (deleteError) throw deleteError;
-
-    if (budgets.length > 0) {
-        // Add user_id and convert to snake_case
-        const budgetsWithUserId = budgets.map(b => {
-            // Remove id - let database generate UUID
-            const { id, ...budgetData } = b;
-            return keysToSnakeCase({
-                ...budgetData,
-                user_id: user.id
-            });
-        });
-
-        const { error: insertError } = await supabase
-            .from('budgets')
-            .insert(budgetsWithUserId);
-
-        if (insertError) throw insertError;
-    }
+  const userId = await getCurrentUserId();
+  await api('/budgets', {
+    method: 'PUT',
+    body: JSON.stringify({
+      user_id: userId,
+      budgets: budgets.map(b => ({
+        id: b.id || generateId('bud'),
+        category: b.category,
+        limit: b.limit,
+        period: b.period,
+      })),
+    }),
+  });
 };
 
-// ============================================================================
-// VEHICLE OPERATIONS
-// ============================================================================
+// ─── Vehicles ─────────────────────────────────────────────────────
 
-/**
- * Fetch all vehicles for the current user
- * @returns Array of vehicles, sorted by name
- */
-export const fetchVehicles = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('vehicles')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('name', { ascending: true });
-
-    if (error) throw error;
-    return keysToCamelCase(data) as Vehicle[];
+export const fetchVehicles = async (): Promise<Vehicle[]> => {
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/vehicles?user_id=${encodeURIComponent(userId)}`);
+  return (data || []).map((v: any) => ({
+    id: v.id,
+    name: v.name,
+    make: v.make,
+    model: v.model,
+    year: v.year,
+    licensePlate: v.license_plate,
+    mileage: v.mileage,
+    type: v.type,
+  }));
 };
 
-/**
- * Add a new vehicle to the database
- * @param vehicle - Vehicle object (id will be ignored, database generates UUID)
- * @returns Database-generated UUID for the new vehicle
- * @throws Error if user is not authenticated
- */
 export const addVehicleToDb = async (vehicle: Vehicle): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    // Remove id - let database generate UUID
-    const { id, ...vehicleData } = vehicle;
-
-    const { data, error } = await supabase
-        .from('vehicles')
-        .insert(keysToSnakeCase({ ...vehicleData, user_id: user.id }))
-        .select()
-        .single();
-
-    if (error) throw error;
-
-    return data.id;
+  const userId = await getCurrentUserId();
+  const id = vehicle.id?.startsWith('veh_') ? vehicle.id : generateId('veh');
+  const { id: savedId } = await api('/vehicles', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, vehicle: { ...vehicle, id } }),
+  });
+  return savedId || id;
 };
 
-/**
- * Update an existing vehicle
- * @param vehicle - Vehicle object with updated values
- * @throws Error if update fails
- */
 export const updateVehicleInDb = async (vehicle: Vehicle) => {
-    const { error } = await supabase
-        .from('vehicles')
-        .update(keysToSnakeCase(vehicle))
-        .eq('id', vehicle.id);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/vehicles/${vehicle.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ user_id: userId, vehicle }),
+  });
 };
 
-/**
- * Delete a vehicle from the database
- * @param id - Vehicle UUID
- * @throws Error if deletion fails
- */
 export const deleteVehicleFromDb = async (id: string) => {
-    const { error } = await supabase
-        .from('vehicles')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/vehicles/${id}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 };
 
-// ============================================================================
-// FUEL LOG OPERATIONS (DEPRECATED - Now using transaction extensions)
-// ============================================================================
+// ─── Legacy Helpers (kept for backward compat) ────────────────────
 
-/**
- * @deprecated Use transaction extensions instead
- * Fetch fuel data from fuel_transactions joined with transactions
- */
-export const fetchFuelLogs = async () => {
-    // Return empty array - fuel data now comes from transactions with fuel_transactions join
-    console.warn('fetchFuelLogs is deprecated. Fuel data is now part of transaction extensions.');
-    return [];
-};
+export const fetchFuelLogs = async () => fetchAllFuelTransactions();
+export const fetchInvestments = async () => fetchAllInvestmentTransactions();
 
-/**
- * @deprecated Use addTransactionWithExtensions instead
- */
 export const addFuelLogToDb = async (fuelLog: FuelLog): Promise<string> => {
-    console.warn('addFuelLogToDb is deprecated. Use addTransactionWithExtensions instead.');
-    return '';
+  const transaction: Transaction = {
+    id: generateId('tx'),
+    date: fuelLog.date,
+    amount: fuelLog.cost,
+    type: TransactionType.EXPENSE,
+    category: 'Fuel',
+    description: 'Fuel entry',
+    accountId: '',
+    source: 'manual',
+  };
+  return addTransactionWithExtensions(transaction, {
+    vehicleId: fuelLog.vehicleId,
+    liters: fuelLog.liters,
+    mileage: fuelLog.mileage,
+  });
 };
 
-// ============================================================================
-// INVESTMENT OPERATIONS (DEPRECATED - Now using transaction extensions)
-// ============================================================================
-
-/**
- * @deprecated Use transaction extensions instead
- * Fetch investment data from investment_transactions joined with transactions
- */
-export const fetchInvestments = async () => {
-    // Return empty array - investment data now comes from transactions with investment_transactions join
-    console.warn('fetchInvestments is deprecated. Investment data is now part of transaction extensions.');
-    return [];
-};
-
-/**
- * @deprecated Use addTransactionWithExtensions instead
- */
 export const addInvestmentToDb = async (investment: Investment): Promise<string> => {
-    console.warn('addInvestmentToDb is deprecated. Use addTransactionWithExtensions instead.');
-    return '';
+  const transaction: Transaction = {
+    id: generateId('tx'),
+    date: investment.date,
+    amount: investment.investedAmount,
+    type: TransactionType.EXPENSE,
+    category: 'Investment',
+    description: `Investment in ${investment.name}`,
+    accountId: '',
+    source: 'manual',
+  };
+  return addTransactionWithExtensions(transaction, undefined, {
+    investmentType: investment.type,
+    assetName: investment.name,
+    quantity: investment.quantity,
+    pricePerUnit: investment.quantity ? investment.investedAmount / investment.quantity : undefined,
+  });
 };
 
-/**
- * @deprecated Use updateTransactionWithExtensions instead
- */
 export const updateInvestmentInDb = async (investment: Investment) => {
-    console.warn('updateInvestmentInDb is deprecated.');
+  const userId = await getCurrentUserId();
+  await api(`/transactions/${investment.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      user_id: userId,
+      transaction: {
+        id: investment.id,
+        date: investment.date,
+        amount: investment.investedAmount,
+        type: 'Expense',
+        category: 'Investment',
+        description: `Investment in ${investment.name}`,
+        accountId: '',
+        metadata: {
+          investmentType: investment.type,
+          assetName: investment.name,
+          quantity: investment.quantity,
+          pricePerUnit: investment.quantity ? investment.investedAmount / investment.quantity : undefined,
+        },
+      },
+    }),
+  });
 };
 
-/**
- * @deprecated Delete the associated transaction instead
- */
 export const deleteInvestmentFromDb = async (id: string) => {
-    console.warn('deleteInvestmentFromDb is deprecated. Delete the transaction instead.');
+  await deleteTransactionFromDb(id);
 };
 
-// ============================================================================
-// CUSTOM CATEGORY OPERATIONS
-// ============================================================================
+// ─── Custom Categories ────────────────────────────────────────────
 
-/**
- * Fetch all custom categories for the current user
- * @returns Array of category names, sorted alphabetically
- */
 export const fetchCustomCategories = async (): Promise<string[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from('custom_categories')
-        .select('name')
-        .eq('user_id', user.id)
-        .order('name', { ascending: true });
-
-    if (error) throw error;
-    return data?.map(c => c.name) || [];
+  const userId = await getCurrentUserId();
+  const { data } = await api(`/categories?user_id=${encodeURIComponent(userId)}`);
+  return data || [];
 };
 
-/**
- * Add a new custom category
- * @param categoryName - Name of the category to add
- * @throws Error if user is not authenticated
- * @note Silently ignores duplicate category names (unique constraint)
- */
 export const addCustomCategoryToDb = async (categoryName: string): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    const trimmedName = categoryName.trim();
-    if (!trimmedName) return;
-
-    const { error } = await supabase
-        .from('custom_categories')
-        .insert({ name: trimmedName, user_id: user.id });
-
-    if (error) {
-        // Ignore duplicate errors (unique constraint violation)
-        if (error.code !== '23505') {
-            throw error;
-        }
-    }
+  const userId = await getCurrentUserId();
+  const trimmed = categoryName.trim();
+  if (!trimmed) return;
+  await api('/categories', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, name: trimmed }),
+  });
 };
 
-/**
- * Delete a custom category
- * @param categoryName - Name of the category to delete
- * @throws Error if user is not authenticated or deletion fails
- */
 export const deleteCustomCategoryFromDb = async (categoryName: string): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('No authenticated user');
-
-    const { error } = await supabase
-        .from('custom_categories')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('name', categoryName);
-
-    if (error) throw error;
+  const userId = await getCurrentUserId();
+  await api(`/categories/${encodeURIComponent(categoryName)}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 };

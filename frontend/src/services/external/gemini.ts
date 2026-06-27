@@ -1,42 +1,24 @@
-import { GoogleGenAI } from "@google/genai";
-import { Transaction } from "../types";
+import { Transaction } from "../../types";
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export const getFinancialInsights = async (transactions: Transaction[], balance: number): Promise<string> => {
-  if (!process.env.API_KEY) {
-    console.warn("Gemini API Key is missing. Skipping AI insight.");
-    return "API Key not configured. Unable to generate insights.";
-  }
+    try {
+        const response = await fetch(`${API_BASE}/api/ai/insights`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactions, balance, provider: 'gemini' }),
+        });
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get insights');
+        }
 
-  // Prepare a summary string of the last 15 transactions
-  const recentTx = transactions.slice(0, 15).map(t => 
-    `${t.date}: ${t.type} - ${t.category} (₹${t.amount}) - ${t.description}`
-  ).join('\n');
-
-  const prompt = `
-    You are a financial advisor for the "FinanceTrackr" app tailored for an Indian user context.
-    Current Total Balance: ₹${balance}
-    
-    Here are the recent transactions:
-    ${recentTx}
-
-    Please provide a concise, 3-point financial insight or advice summary based on this data.
-    Focus on spending habits, potential savings, or budget alerts.
-    Keep the tone professional yet encouraging.
-    Format as a markdown list.
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-    });
-    return response.text || "No insights generated.";
-  } catch (error) {
-    console.error("Error generating financial insights:", error);
-    return "Unable to generate insights at this moment. Please try again later.";
-  }
+        const data = await response.json();
+        return data.insights || "No insights generated.";
+    } catch (error) {
+        console.error("Error generating financial insights:", error);
+        return "Unable to generate insights at this moment. Please try again later.";
+    }
 };
