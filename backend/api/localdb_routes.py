@@ -117,6 +117,22 @@ def api_update_transaction(tx_id):
         return jsonify({'error': 'user_id is required'}), 400
     transaction = payload.get('transaction', {})
     transaction['id'] = tx_id
+    fuel_data = payload.get('fuelData')
+    investment_data = payload.get('investmentData')
+    if fuel_data:
+        transaction.setdefault('metadata', {}).update({
+            'vehicleId': fuel_data.get('vehicleId', ''),
+            'liters': fuel_data.get('liters', 0),
+            'mileage': fuel_data.get('mileage', 0),
+            'odometer': fuel_data.get('mileage', 0),
+        })
+    if investment_data:
+        transaction.setdefault('metadata', {}).update({
+            'investmentType': investment_data.get('investmentType', 'Other'),
+            'assetName': investment_data.get('assetName', ''),
+            'quantity': investment_data.get('quantity'),
+            'pricePerUnit': investment_data.get('pricePerUnit'),
+        })
     rows = update_transaction(user_id, transaction)
     if rows == 0:
         return jsonify({'error': 'Transaction not found'}), 404
