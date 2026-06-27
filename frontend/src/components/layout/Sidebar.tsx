@@ -11,6 +11,7 @@ import {
     ChevronRight
 } from 'lucide-react';
 import { ViewState } from '../../types';
+import { useAuthStore } from '../../stores/authStore';
 
 interface SidebarProps {
     currentView: ViewState;
@@ -20,6 +21,10 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ currentView, onViewChange, onLogout, isOpen = true }: SidebarProps) => {
+    const { session } = useAuthStore();
+    const user = session?.user;
+    const email = user?.email || 'user@example.com';
+    const initials = email.substring(0, 2).toUpperCase();
 
     const menuItems: { id: ViewState; label: string; icon: React.ReactNode }[] = [
         { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
@@ -102,11 +107,11 @@ export const Sidebar = ({ currentView, onViewChange, onLogout, isOpen = true }: 
             {/* User Profile Snippet */}
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold shadow-sm">
-                    BG
+                    {initials}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">Bhavin Gor</p>
-                    <p className="text-xs text-slate-500 truncate">bhavin@example.com</p>
+                    <p className="text-sm font-semibold text-slate-800 truncate">{email.split('@')[0]}</p>
+                    <p className="text-xs text-slate-500 truncate">{email}</p>
                 </div>
             </div>
         </div>
