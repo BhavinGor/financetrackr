@@ -117,7 +117,9 @@ def api_update_transaction(tx_id):
         return jsonify({'error': 'user_id is required'}), 400
     transaction = payload.get('transaction', {})
     transaction['id'] = tx_id
-    update_transaction(user_id, transaction)
+    rows = update_transaction(user_id, transaction)
+    if rows == 0:
+        return jsonify({'error': 'Transaction not found'}), 404
     return jsonify({'success': True}), 200
 
 

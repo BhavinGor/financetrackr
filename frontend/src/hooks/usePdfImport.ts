@@ -115,6 +115,8 @@ export const usePdfImport = () => {
             }
           } catch {
             alert('Failed to process PDF with provided password.');
+            setShowLoadingModal(false);
+            setLoadingStage('uploading');
           }
         } else {
           setShowLoadingModal(false);

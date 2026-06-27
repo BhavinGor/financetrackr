@@ -99,33 +99,47 @@ def get_transactions(user_id: str) -> List[Dict[str, Any]]:
     _ensure_user(user_id)
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC", (user_id,)
+            """SELECT t.*,
+                      fe.vehicle_id, fe.liters, fe.mileage,
+                      ie.investment_type, ie.asset_name, ie.quantity, ie.price_per_unit
+               FROM transactions t
+               LEFT JOIN fuel_extensions fe ON t.id = fe.transaction_id
+               LEFT JOIN investment_extensions ie ON t.id = ie.transaction_id
+               WHERE t.user_id = ? ORDER BY t.date DESC""",
+            (user_id,)
         ).fetchall()
 
     transactions = []
     for r in rows:
         tx = dict(r)
-        # Attach fuel extension if exists
-        fuel = _get_fuel_extension(tx['id'])
-        if fuel:
+        vehicle_id = tx.pop('vehicle_id', None)
+        if vehicle_id:
             tx['metadata'] = {
-                'vehicleId': fuel['vehicle_id'],
-                'liters': fuel['liters'],
-                'mileage': fuel['mileage'],
-                'odometer': fuel['mileage'],
+                'vehicleId': vehicle_id,
+                'liters': tx.pop('liters', None),
+                'mileage': tx.pop('mileage', None),
+                'odometer': tx.pop('mileage', None),
             }
-        # Attach investment extension if exists
-        inv = _get_investment_extension(tx['id'])
-        if inv:
+        else:
+            tx.pop('liters', None)
+            tx.pop('mileage', None)
+
+        asset_name = tx.pop('asset_name', None)
+        if asset_name:
             tx['metadata'] = {
-                'investmentId': inv['transaction_id'],
-                'investmentType': inv['investment_type'],
-                'assetName': inv['asset_name'],
-                'quantity': inv['quantity'],
-                'units': inv['quantity'],
-                'pricePerUnit': inv['price_per_unit'],
-                'price': inv['price_per_unit'],
+                'investmentId': tx['id'],
+                'investmentType': tx.pop('investment_type', None),
+                'assetName': asset_name,
+                'quantity': tx.pop('quantity', None),
+                'units': tx.pop('quantity', None),
+                'pricePerUnit': tx.pop('price_per_unit', None),
+                'price': tx.pop('price_per_unit', None),
             }
+        else:
+            tx.pop('investment_type', None)
+            tx.pop('quantity', None)
+            tx.pop('price_per_unit', None)
+
         transactions.append(tx)
     return transactions
 
@@ -146,10 +160,10 @@ def add_transaction(user_id: str, transaction: Dict[str, Any]) -> str:
     return tx_id
 
 
-def update_transaction(user_id: str, transaction: Dict[str, Any]) -> None:
+def update_transaction(user_id: str, transaction: Dict[str, Any]) -> int:
     tx_id = transaction.get('id')
     with _connect() as conn:
-        conn.execute(
+        cursor = conn.execute(
             """UPDATE transactions SET date=?, amount=?, type=?, category=?, description=?, account_id=?, source=?, notes=?
                WHERE id=? AND user_id=?""",
             (transaction.get('date', ''), transaction.get('amount', 0),
@@ -158,6 +172,7 @@ def update_transaction(user_id: str, transaction: Dict[str, Any]) -> None:
              transaction.get('source', 'manual'), transaction.get('notes'),
              tx_id, user_id)
         )
+        rows_updated = cursor.rowcount
         # Handle metadata (fuel/investment extensions)
         metadata = transaction.get('metadata', {})
         is_fuel = transaction.get('category') == 'Fuel' and metadata.get('vehicleId')
@@ -185,6 +200,7 @@ def update_transaction(user_id: str, transaction: Dict[str, Any]) -> None:
                  float(metadata.get('pricePerUnit') or metadata.get('price', 0)))
             )
         conn.commit()
+    return rows_updated
 
 
 def delete_transaction(user_id: str, tx_id: str) -> None:
@@ -236,13 +252,6 @@ def add_transaction_with_extensions(
 
 # ─── Fuel Extension Helpers ───────────────────────────────────────
 
-def _get_fuel_extension(tx_id: str) -> Optional[Dict[str, Any]]:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM fuel_extensions WHERE transaction_id=?", (tx_id,)
-        ).fetchone()
-    return dict(row) if row else None
-
 
 def get_fuel_transactions(user_id: str) -> List[Dict[str, Any]]:
     with _connect() as conn:
@@ -270,15 +279,8 @@ def get_fuel_transactions_for_vehicle(user_id: str, vehicle_id: str) -> List[Dic
     return [dict(r) for r in rows]
 
 
+
 # ─── Investment Extension Helpers ─────────────────────────────────
-
-def _get_investment_extension(tx_id: str) -> Optional[Dict[str, Any]]:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM investment_extensions WHERE transaction_id=?", (tx_id,)
-        ).fetchone()
-    return dict(row) if row else None
-
 
 def get_investment_transactions(user_id: str) -> List[Dict[str, Any]]:
     with _connect() as conn:
@@ -421,16 +423,15 @@ def get_state(user_id: str) -> Dict[str, Any]:
     }
 
 
-def save_state(user_id: str, state: Dict[str, Any]) -> None:
+def save_state(user_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
     """Legacy: Save all data from a single dict (for migration)."""
     for acc in state.get('accounts', []):
         add_account(user_id, acc)
     for tx in state.get('transactions', []):
         add_transaction(user_id, tx)
-    for bud in state.get('budgets', []):
-        save_budgets(user_id, state.get('budgets', []))
-        break
+    save_budgets(user_id, state.get('budgets', []))
     for veh in state.get('vehicles', []):
         add_vehicle(user_id, veh)
     for cat in state.get('customCategories', []):
         add_custom_category(user_id, cat)
+    return get_state(user_id)

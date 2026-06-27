@@ -43,7 +43,7 @@ const App = () => {
         loadAccounts(),
         loadVehicles(),
       ]);
-      await loadBudgets(transactions);
+      await loadBudgets(useTransactionStore.getState().transactions);
     };
 
     init();
@@ -64,7 +64,7 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (transactions.length > 0 && budgets.length > 0) {
+    if (transactions.length > 0) {
       loadBudgets(transactions);
     }
   }, [transactions]);

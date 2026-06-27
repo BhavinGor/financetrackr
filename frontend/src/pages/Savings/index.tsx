@@ -41,7 +41,8 @@ export const SavingsPage = () => {
         };
 
         if (editingId) {
-            // Update existing investment transaction
+            const existing = investments.find((i: any) => i.id === invData.id);
+            const accountId = existing?.accountId || '';
             updateTransaction({
                 id: invData.id,
                 date: invData.date,
@@ -49,7 +50,7 @@ export const SavingsPage = () => {
                 type: 'Expense' as any,
                 category: 'Investment',
                 description: `Investment in ${invData.name}`,
-                accountId: '',
+                accountId,
                 metadata: {
                     investmentType: invData.type,
                     assetName: invData.name,
