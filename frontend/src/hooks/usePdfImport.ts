@@ -27,7 +27,7 @@ export const usePdfImport = () => {
         name: `${accountInfo.bankName || 'Bank'} - ${last4} `,
         bankName: accountInfo.bankName || 'Unknown Bank',
         accountNumber: accountInfo.accountNumber,
-        balance: accountInfo.closingBalance || accountInfo.primaryBalance || '0',
+        balance: String(accountInfo.closingBalance ?? accountInfo.primaryBalance ?? '0'),
         type: 'Savings',
         isPrimary: true,
       });
@@ -38,7 +38,7 @@ export const usePdfImport = () => {
             name: `${acc.name || 'Linked Account'} - ${lLast4} `,
             bankName: accountInfo.bankName,
             accountNumber: acc.accountNumber,
-            balance: acc.balance || '0',
+            balance: String(acc.balance ?? '0'),
             type: acc.name?.includes('PPF') ? 'Investment' : 'Savings',
             isLinked: true,
           });
@@ -85,14 +85,11 @@ export const usePdfImport = () => {
     const url = URL.createObjectURL(file);
     setPdfBlob(url);
     setShowLoadingModal(true);
-    setLoadingStage('uploading');
-    await new Promise(r => setTimeout(r, 1000));
     setLoadingStage('parsing');
 
     try {
       const response = await parsePdfFile(file);
       setLoadingStage('ai_analysis');
-      await new Promise(r => setTimeout(r, 1500));
 
       if (response?.success && response.data) {
         processPdfResponse(response);

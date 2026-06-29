@@ -44,13 +44,13 @@ export const TransactionImportPanel = (props: TransactionImportPanelProps) => {
         ));
     };
 
-    const handleFinalConfirm = () => {
+    const handleFinalConfirm = async () => {
         setIsProcessing(true);
-        // Simulate processing
-        setTimeout(() => {
-            onConfirm(transactions);
+        try {
+            await onConfirm(transactions);
+        } finally {
             setIsProcessing(false);
-        }, 800);
+        }
     };
 
     return (
@@ -148,7 +148,7 @@ export const TransactionImportPanel = (props: TransactionImportPanelProps) => {
                                                         </h4>
                                                         <p className="text-sm text-slate-500">
                                                             {acc.accountNumber ? `****${acc.accountNumber.slice(-4)}` : 'No Number'}
-                                                            {acc.balance && ` • Bal: ₹${parseFloat(acc.balance.replace(/,/g, '')).toLocaleString()}`}
+                                                            {acc.balance != null && acc.balance !== '0' && ` • Bal: ₹${parseFloat(String(acc.balance).replace(/,/g, '')).toLocaleString()}`}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -163,7 +163,7 @@ export const TransactionImportPanel = (props: TransactionImportPanelProps) => {
                                                                     name: acc.name, // Name already includes last 4 digits "Bank - 1234"
                                                                     bankName: acc.bankName,
                                                                     type: acc.type || 'Savings',
-                                                                    balance: parseFloat(acc.balance.replace(/,/g, '') || '0'),
+                                                                    balance: parseFloat(String(acc.balance ?? '0').replace(/,/g, '') || '0'),
                                                                     currency: 'INR'
                                                                     // accountNumber not in DB schema, omitting. Name has specific info.
                                                                 };

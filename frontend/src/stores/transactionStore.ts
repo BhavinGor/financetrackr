@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Transaction, TransactionType } from '../types';
+import { generateId } from '../utils/id';
 import {
   fetchTransactions,
   addTransactionToDb,
@@ -93,7 +94,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
 
   addFuelLog: async (log, defaultAccountId) => {
     const transaction: Transaction = {
-      id: `tx_${Date.now()}`,
+      id: generateId('tx'),
       type: TransactionType.EXPENSE,
       category: 'Fuel',
       description: 'Fuel for vehicle',
@@ -111,7 +112,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
 
   addInvestment: async (inv, defaultAccountId) => {
     const transaction: Transaction = {
-      id: `tx_${Date.now()}`,
+      id: generateId('tx'),
       type: TransactionType.EXPENSE,
       category: 'Investment',
       description: `Investment in ${inv.name}`,

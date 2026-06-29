@@ -40,6 +40,7 @@ class Config:
     AWS_SECRET_ACCESS_KEY = os.getenv('VITE_AWS_SECRET_ACCESS_KEY')
     AWS_REGION = os.getenv('VITE_AWS_REGION', 'us-east-1')
     USE_OLLAMA = os.getenv('USE_OLLAMA', 'true').lower() == 'true'
+    GROQ_API_KEY = os.getenv('GROQ_API_KEY')
     OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')
     OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.2:latest')
     OCR_PROVIDER = os.getenv('OCR_PROVIDER', 'legacy').lower()  # legacy | docling | lighton_hf | ollama_lighton

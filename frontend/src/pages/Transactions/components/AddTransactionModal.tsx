@@ -189,10 +189,6 @@ export const AddTransactionModal = ({
                         setMetadata(prev => ({ ...prev, [key]: value }));
                     }}
                     isExpanded={true}
-                    vehicles={vehicles}
-                    investments={investments}
-                    onAddVehicle={onAddVehicle}
-                    onAddInvestment={onAddInvestment}
                 />
 
                 <div className="flex justify-end gap-3 mt-6">

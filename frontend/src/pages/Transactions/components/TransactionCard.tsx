@@ -3,9 +3,11 @@ import { Card } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import { Transaction, TransactionType, Vehicle, Investment } from '../../../types/index';
-import { ChevronDown, ChevronUp, Trash2, Save, X, Check } from 'lucide-react';
+import { Transaction, TransactionType, Vehicle, Investment, InvestmentType } from '../../../types/index';
+import { ChevronDown, ChevronUp, Trash2, Save, X, Check, Plus, Loader2 } from 'lucide-react';
 import { getAllCategories, saveCustomCategory } from '../../../services/storage/categoryStorage';
+import { useVehicleStore } from '../../../stores/vehicleStore';
+import { generateId } from '../../../utils/id';
 
 interface TransactionCardProps {
     transaction: Transaction;
@@ -23,8 +25,6 @@ interface ValidationErrors {
     description?: string;
     amount?: string;
     account?: string;
-    vehicleId?: string;
-    investmentId?: string;
 }
 
 export const TransactionCard = ({
@@ -39,11 +39,19 @@ export const TransactionCard = ({
     onAddInvestmentClick
 }: TransactionCardProps) => {
     // State
+    const { vehicles: storeVehicles, addVehicle: addVehicleToStore } = useVehicleStore();
+
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const [isDirty, setIsDirty] = useState(false);
     const [editedTransaction, setEditedTransaction] = useState<Transaction>(transaction);
     const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
     const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+
+    // Inline vehicle creation state
+    const [showVehicleForm, setShowVehicleForm] = useState(false);
+    const [newVehicleName, setNewVehicleName] = useState('');
+    const [newVehicleType, setNewVehicleType] = useState('Car');
+    const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
 
     // Custom category state
     const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -80,22 +88,6 @@ export const TransactionCard = ({
             errors.account = 'Account is required';
         }
 
-        // Conditional validation for Fuel
-        if (editedTransaction.category === 'Fuel') {
-            const metadata = editedTransaction.metadata;
-            if (!metadata?.vehicleId) {
-                errors.vehicleId = 'Vehicle is required for fuel expenses';
-            }
-        }
-
-        // Conditional validation for Investment/Savings
-        if (editedTransaction.category === 'Investment' || editedTransaction.category === 'Savings') {
-            const metadata = editedTransaction.metadata;
-            if (!metadata?.investmentId) {
-                errors.investmentId = 'Investment selection is required';
-            }
-        }
-
         setValidationErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -124,6 +116,20 @@ export const TransactionCard = ({
             setIsAddingCategory(false);
             setNewCategoryName('');
             setIsDirty(true);
+        }
+    };
+
+    const handleCreateVehicle = async () => {
+        if (!newVehicleName.trim()) return;
+        setIsCreatingVehicle(true);
+        try {
+            const id = generateId('veh');
+            await addVehicleToStore({ id, name: newVehicleName, make: '', model: '', year: new Date().getFullYear(), licensePlate: '', mileage: 0, type: newVehicleType });
+            handleMetadataChange('vehicleId', id);
+            setShowVehicleForm(false);
+            setNewVehicleName('');
+        } finally {
+            setIsCreatingVehicle(false);
         }
     };
 
@@ -390,87 +396,119 @@ export const TransactionCard = ({
 
                         {/* Layer 3: Conditional Sections */}
                         {editedTransaction.category === 'Fuel' && (
-                            <div className="mt-6 p-4 bg-slate-50 rounded-lg">
-                                <h4 className="text-sm font-semibold text-slate-900 mb-4">Vehicle Expense Details</h4>
-                                <div className="grid gap-4">
+                            <div className="mt-2 p-4 bg-orange-50 rounded-lg border border-orange-100">
+                                <h4 className="text-sm font-semibold text-orange-800 mb-3">Vehicle Expense Details</h4>
+                                <div className="grid gap-3">
                                     <div>
-                                        <label className="block text-xs font-medium text-slate-700 mb-2">
-                                            Vehicle *
-                                        </label>
-                                        <select
-                                            value={editedTransaction.metadata?.vehicleId || ''}
-                                            onChange={(e) => handleMetadataChange('vehicleId', e.target.value)}
-                                            className={`w-full px-3 py-2 border rounded-lg text-sm ${validationErrors.vehicleId ? 'border-red-300' : 'border-slate-300'
-                                                } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                                        >
-                                            <option value="">Select Vehicle</option>
-                                            {vehicles.map(v => (
-                                                <option key={v.id} value={v.id}>{v.name}</option>
-                                            ))}
-                                        </select>
-                                        {validationErrors.vehicleId && (
-                                            <p className="mt-1 text-xs text-red-600">{validationErrors.vehicleId}</p>
-                                        )}
+                                        <label className="block text-xs font-medium text-slate-700 mb-1.5">Vehicle</label>
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={editedTransaction.metadata?.vehicleId || ''}
+                                                onChange={(e) => { handleMetadataChange('vehicleId', e.target.value); setShowVehicleForm(false); }}
+                                                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                                <option value="">-- Select Vehicle --</option>
+                                                {storeVehicles.map(v => (
+                                                    <option key={v.id} value={v.id}>{v.name}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowVehicleForm(f => !f)}
+                                                className="px-3 py-2 text-xs font-medium text-orange-700 border border-orange-300 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1"
+                                            >
+                                                <Plus size={13} /> Add
+                                            </button>
+                                        </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-medium text-slate-700 mb-2">
-                                                Liters
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={editedTransaction.metadata?.liters || ''}
-                                                onChange={(e) => handleMetadataChange('liters', e.target.value)}
-                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                                step="0.1"
-                                                placeholder="Optional"
-                                            />
+                                    {showVehicleForm && (
+                                        <div className="bg-white border border-orange-200 rounded-lg p-3 space-y-2">
+                                            <p className="text-xs font-medium text-slate-600">Quick Add Vehicle</p>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    autoFocus
+                                                    value={newVehicleName}
+                                                    onChange={(e) => setNewVehicleName(e.target.value)}
+                                                    placeholder="Vehicle name (e.g. My Car)"
+                                                    className="flex-1 px-2 py-1.5 border border-slate-300 rounded-md text-sm focus:ring-1 focus:ring-orange-400"
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleCreateVehicle()}
+                                                />
+                                                <select
+                                                    value={newVehicleType}
+                                                    onChange={(e) => setNewVehicleType(e.target.value)}
+                                                    className="px-2 py-1.5 border border-slate-300 rounded-md text-sm focus:ring-1 focus:ring-orange-400"
+                                                >
+                                                    {['Car', 'Bike', 'Scooter', 'Truck', 'Other'].map(t => <option key={t}>{t}</option>)}
+                                                </select>
+                                                <button
+                                                    onClick={handleCreateVehicle}
+                                                    disabled={!newVehicleName.trim() || isCreatingVehicle}
+                                                    className="px-3 py-1.5 bg-orange-600 text-white rounded-md text-sm hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1"
+                                                >
+                                                    {isCreatingVehicle ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                                                </button>
+                                                <button onClick={() => setShowVehicleForm(false)} className="px-2 py-1.5 text-slate-400 hover:text-slate-600">
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
                                         </div>
+                                    )}
 
+                                    <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="block text-xs font-medium text-slate-700 mb-2">
-                                                Odometer (km)
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={editedTransaction.metadata?.odometer || ''}
-                                                onChange={(e) => handleMetadataChange('odometer', e.target.value)}
-                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                                placeholder="Optional"
-                                            />
+                                            <label className="block text-xs font-medium text-slate-700 mb-1.5">Liters</label>
+                                            <input type="number" value={editedTransaction.metadata?.liters || ''} onChange={(e) => handleMetadataChange('liters', e.target.value)}
+                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" step="0.1" placeholder="Optional" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-700 mb-1.5">Odometer (km)</label>
+                                            <input type="number" value={editedTransaction.metadata?.odometer || ''} onChange={(e) => handleMetadataChange('odometer', e.target.value)}
+                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Optional" />
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* Show investment section if category is Investment/Savings OR if metadata has investmentId */}
-                        {((editedTransaction.category === 'Investment' || editedTransaction.category === 'Savings') ||
-                            editedTransaction.metadata?.investmentId) && (
-                                <div className="mt-6 p-4 bg-slate-50 rounded-lg">
-                                    <h4 className="text-sm font-semibold text-slate-900 mb-4">Investment Assignment</h4>
+                        {(editedTransaction.category === 'Investment' || editedTransaction.category === 'Savings') && (
+                            <div className="mt-2 p-4 bg-purple-50 rounded-lg border border-purple-100">
+                                <h4 className="text-sm font-semibold text-purple-800 mb-3">Investment Details</h4>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-medium text-slate-700 mb-1.5">Asset / Investment Name</label>
+                                        <input
+                                            type="text"
+                                            value={editedTransaction.metadata?.assetName || ''}
+                                            onChange={(e) => handleMetadataChange('assetName', e.target.value)}
+                                            placeholder="e.g. HDFC Nifty 50 Fund, SBI FD"
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 focus:border-transparent"
+                                        />
+                                    </div>
                                     <div>
-                                        <label className="block text-xs font-medium text-slate-700 mb-2">
-                                            Investment/Goal *
-                                        </label>
+                                        <label className="block text-xs font-medium text-slate-700 mb-1.5">Investment Type</label>
                                         <select
-                                            value={editedTransaction.metadata?.investmentId || ''}
-                                            onChange={(e) => handleMetadataChange('investmentId', e.target.value)}
-                                            className={`w-full px-3 py-2 border rounded-lg text-sm ${validationErrors.investmentId ? 'border-red-300' : 'border-slate-300'
-                                                } focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                                            value={editedTransaction.metadata?.investmentType || InvestmentType.OTHER}
+                                            onChange={(e) => handleMetadataChange('investmentType', e.target.value)}
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 focus:border-transparent"
                                         >
-                                            <option value="">Select Investment/Goal</option>
-                                            {investments.map(inv => (
-                                                <option key={inv.id} value={inv.id}>{inv.name}</option>
-                                            ))}
+                                            {Object.values(InvestmentType).map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
-                                        {validationErrors.investmentId && (
-                                            <p className="mt-1 text-xs text-red-600">{validationErrors.investmentId}</p>
-                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-700 mb-1.5">Units / Qty (Optional)</label>
+                                        <input
+                                            type="number"
+                                            value={editedTransaction.metadata?.units || ''}
+                                            onChange={(e) => handleMetadataChange('units', e.target.value)}
+                                            placeholder="0.00"
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 focus:border-transparent"
+                                            step="0.001"
+                                        />
                                     </div>
                                 </div>
-                            )}
+                            </div>
+                        )}
 
                         {/* Save/Cancel Actions */}
                         <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-100">

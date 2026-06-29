@@ -15,7 +15,7 @@ import { useVehicleStore } from '../../stores/vehicleStore';
 import { usePdfImport } from '../../hooks/usePdfImport';
 
 export const TransactionsPage = () => {
-  const { transactions, addTransaction, updateTransaction, deleteTransaction, addFuelLog, addInvestment } = useTransactionStore();
+  const { transactions, addTransaction, addTransactionWithExt, updateTransaction, deleteTransaction, addFuelLog, addInvestment } = useTransactionStore();
   const { accounts, addAccount } = useAccountStore();
   const { vehicles, addVehicle } = useVehicleStore();
 
@@ -35,7 +35,25 @@ export const TransactionsPage = () => {
 
   const handleManualAddTransaction = async (tx: any) => {
     const { metadata, ...rest } = tx;
-    await addTransaction({ ...rest, notes: rest.notes || (metadata ? `Details: ${JSON.stringify(metadata)}` : undefined) });
+    const cat = rest.category?.toLowerCase();
+
+    if (cat === 'fuel' && metadata?.vehicleId) {
+      await addTransactionWithExt(rest, {
+        vehicleId: metadata.vehicleId,
+        liters: parseFloat(metadata.liters || 0),
+        mileage: metadata.odometer ? parseFloat(metadata.odometer) : undefined,
+      });
+    } else if ((cat === 'investment' || cat === 'savings') && metadata?.assetName) {
+      await addTransactionWithExt(rest, undefined, {
+        investmentType: metadata.investmentType || 'Other',
+        assetName: metadata.assetName,
+        quantity: metadata.units ? parseFloat(metadata.units) : undefined,
+        pricePerUnit: undefined,
+      });
+    } else {
+      const notes = rest.notes || (metadata && Object.keys(metadata).length > 0 ? `Details: ${JSON.stringify(metadata)}` : undefined);
+      await addTransaction({ ...rest, notes });
+    }
   };
 
   const filteredTransactions = transactions.filter(t => {

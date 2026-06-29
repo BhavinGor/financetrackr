@@ -1,120 +1,115 @@
+"""OpenRouter API client for transaction extraction.
 
+Iterates through MODEL_PRIORITY. On 429, respects the retry_after_seconds
+from the error body before retrying the same model once. On 404 (deprecated /
+unavailable model), skips immediately.
+"""
 import os
-import requests
+import time
 import logging
-import json
+import requests
 from typing import Dict, Any
 
 from .model_registry import MODEL_PRIORITY
-from .retry_handler import execute_with_retry, MaxRetriesExceededError
 from .response_validator import validate_json_response
+from .prompts import EXTRACTION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# System prompt for strict JSON
-SYSTEM_PROMPT = """
-You are a specialized data extraction assistant.
-Your task is to extract structured financial transaction data from the provided text.
-output must be strict JSON only.
-Do not include any markdown formatting (like ```json ... ```).
-Do not include any explanations or conversational text.
-Respond with valid JSON only.
 
-The JSON structure should be:
-{
-  "transactions": [
-    {
-      "date": "YYYY-MM-DD",
-      "description": "string",
-      "amount": number,
-      "type": "DEBIT" or "CREDIT"
-    }
-  ],
-  "accountInfo": {
-    "accountNumber": "string or null",
-    "bankName": "string or null"
-  },
-  "summary": {
-    "totalDebits": number,
-    "totalCredits": number
-  }
-}
-"""
-
-def extract_structured_data(extracted_text: str, max_retries_per_model: int = 3) -> Dict[str, Any]:
+def extract_structured_data(extracted_text: str) -> Dict[str, Any]:
     """
-    Orchestrates the extraction process using OpenRouter models with fallback.
-    
-    Args:
-        extracted_text: The text extracted from the PDF.
-        max_retries_per_model: Number of retries per model.
-        
-    Returns:
-        Structured JSON data.
-        
+    Extract transaction data using OpenRouter with smart retry/fallback.
+
     Raises:
         Exception: If all models fail.
     """
-    
     if not OPENROUTER_API_KEY:
-        logger.warning("OPENROUTER_API_KEY not found in environment.")
-        # Could raise error here, but maybe caller handles it or user forgot to set it.
-    
+        raise ValueError("OPENROUTER_API_KEY not configured")
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://financetrackr.app", # Required by OpenRouter
+        "HTTP-Referer": "https://financetrackr.app",
         "X-Title": "FinanceTrackr",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    
+
     errors = []
+    total_rate_limited = 0
 
     for model in MODEL_PRIORITY:
-        logger.info(f"Attempting extraction with model: {model}")
-        
-        def attempt_extraction():
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Extract transaction data from this text:\n\n{extracted_text}"}
-                ],
-                "temperature": 0.1, # Low temp for deterministic output
-                "response_format": {"type": "json_object"} # Try to enforce JSON mode if supported
-            }
-            
-            response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-            
-            if response.status_code != 200:
-                raise Exception(f"API Error {response.status_code}: {response.text}")
-                
-            resp_json = response.json()
-            if "choices" not in resp_json or not resp_json["choices"]:
-                 raise Exception("Invalid API response format: missing choices")
-            
-            content = resp_json["choices"][0]["message"]["content"]
-            
-            # Validate JSON
-            return validate_json_response(content)
+        logger.info(f"Attempting extraction with OpenRouter model: {model}")
+        model_rate_limited = False
 
-        try:
-            result = execute_with_retry(
-                attempt_extraction, 
-                max_retries=max_retries_per_model,
-                allowed_exceptions=(Exception, ValueError)
-            )
-            logger.info(f"Successfully extracted data using {model}")
-            return result
-            
-        except MaxRetriesExceededError as e:
-            logger.warning(f"All retries failed for model {model}: {e}")
-            errors.append(f"{model}: {str(e)}")
-            continue # Try next model
-            
-    # If we get here, all models failed
-    error_summary = "; ".join(errors)
-    logger.error(f"All models failed to extract data. Errors: {error_summary}")
-    raise Exception(f"All extraction attempts failed. Details: {error_summary}")
+        for attempt in range(2):
+            try:
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                        {"role": "user", "content": f"Extract transaction data from this text:\n\n{extracted_text}"},
+                    ],
+                    "temperature": 0.1,
+                    "response_format": {"type": "json_object"},
+                }
+
+                response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+
+                if response.status_code == 404:
+                    logger.warning(f"OpenRouter model {model} not available (404), skipping")
+                    errors.append(f"{model}: not available")
+                    break
+
+                if response.status_code == 429:
+                    err_body = response.json()
+                    retry_after = (
+                        err_body.get("error", {})
+                        .get("metadata", {})
+                        .get("retry_after_seconds", 10)
+                    )
+                    # Cap wait at 10s — if still rate-limited, account is globally limited
+                    wait = min(float(retry_after), 10) + 1
+                    logger.warning(f"OpenRouter rate limited on {model}, retry_after={retry_after}s (waiting {wait}s)")
+                    if attempt == 0:
+                        time.sleep(wait)
+                        continue
+                    model_rate_limited = True
+                    errors.append(f"{model}: rate limited")
+                    break
+
+                if response.status_code != 200:
+                    logger.warning(f"OpenRouter {model} HTTP {response.status_code}: {response.text[:300]}")
+                    errors.append(f"{model}: HTTP {response.status_code}")
+                    break
+
+                resp_json = response.json()
+                choices = resp_json.get("choices", [])
+                if not choices:
+                    errors.append(f"{model}: empty choices")
+                    break
+
+                content = choices[0]["message"].get("content")
+                if not content:
+                    errors.append(f"{model}: empty content")
+                    break
+                result = validate_json_response(content)
+                logger.info(f"Successfully extracted data using OpenRouter/{model}")
+                return result
+
+            except Exception as e:
+                logger.warning(f"OpenRouter {model} attempt {attempt + 1} failed: {e}")
+                if attempt == 1:
+                    errors.append(f"{model}: {e}")
+
+        if model_rate_limited:
+            total_rate_limited += 1
+
+        # If 2 models are rate-limited (not necessarily consecutive), bail — account-wide limit
+        if total_rate_limited >= 2:
+            logger.warning("OpenRouter appears globally rate-limited (2 models hit 429). Bailing out.")
+            break
+
+    raise Exception(f"All OpenRouter models failed. Errors: {'; '.join(errors)}")
